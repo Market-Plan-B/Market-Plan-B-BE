@@ -2,7 +2,7 @@ from fastapi import APIRouter
 from datetime import date
 from app.schemas.report import CardNewsResponse, ReportResponse
 
-router = APIRouter(prefix="/report", tags=["report"])
+router = APIRouter(prefix="/api/reports", tags=["report"])
 
 @router.get("/daily/cardnews", response_model=CardNewsResponse)
 async def get_daily_cardnews():
