@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-import uvicorn
+from app.routers import auth
 
 app = FastAPI(
     title="Market Plan B API",
@@ -9,9 +9,4 @@ app = FastAPI(
     redoc_url="/redoc"
 )
 
-@app.get("/")
-async def root():
-    return {"message": "Market Plan B API"}
-
-if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)
+app.include_router(auth.router)
