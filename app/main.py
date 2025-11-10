@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 import uvicorn
+from app.routers import report
 
 app = FastAPI(
     title="Market Plan B API",
@@ -8,6 +9,8 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc"
 )
+
+app.include_router(report.router)
 
 @app.get("/")
 async def root():
