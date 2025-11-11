@@ -23,28 +23,31 @@ REDIS_KEY = "brent_news_urls"
 # ----------------------------
 def parse_relative_time(text: str):
     """
-    '2 hours ago' 등 Investing.com 표기시간 → UTC datetime으로 변환
-    Investing.com은 기본적으로 GMT+2 기준이므로, UTC로 변환하려면 -2시간 보정 필요.
+    Investing.com 표기 시각은 GMT+2 기준이므로, UTC 기준으로 변환 시 -2h 보정
     """
-    now = datetime.utcnow() + timedelta(hours=2)
+    now_gmt2 = datetime.utcnow() + timedelta(hours=2)
     text = text.lower().strip()
 
     try:
         if "hour" in text:
             num = int(text.split()[0])
-            dt = now - timedelta(hours=num)
+            dt_gmt2 = now_gmt2 - timedelta(hours=num)
         elif "minute" in text:
             num = int(text.split()[0])
-            dt = now - timedelta(minutes=num)
+            dt_gmt2 = now_gmt2 - timedelta(minutes=num)
         elif "day" in text:
             num = int(text.split()[0])
-            dt = now - timedelta(days=num)
+            dt_gmt2 = now_gmt2 - timedelta(days=num)
         else:
             try:
-                dt = datetime.strptime(text, "%b %d, %Y")
+                dt_gmt2 = datetime.strptime(text, "%b %d, %Y")
             except Exception:
                 return None
-        return dt
+
+        # ✅ GMT+2 → UTC로 변환 (-2h)
+        dt_utc = dt_gmt2 - timedelta(hours=2)
+        return dt_utc
+
     except Exception:
         return None
 
@@ -119,14 +122,22 @@ async def crawl_article_detail(crawler, article, run_cfg):
         if not detail or not detail.get("content"):
             return None
 
+        # ✅ published_date 보정
+        if article["published_at"]:
+            # UTC → KST 변환 + 문자열 포맷
+            published_date = (article["published_at"]).strftime("%Y-%m-%d %H:%M")
+        else:
+            published_date = None
+
         return {
             "title": detail["title"],
             "url": article["url"],
             "content": detail["content"],
-            "published_date": (article["published_at"] + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M") if article["published_at"] else None
+            "published_date": published_date  # ✅ 항상 문자열 형태
         }
+
     except Exception as e:
-        print(f"[상세 크롤링 오류] {article['url']} → {e}")
+        print(f"[⚠️ 상세 크롤링 오류] {article['url']} → {e}")
         return None
 
 
@@ -137,9 +148,8 @@ async def crawl_brent_news(start_page=1, end_page=10, concurrency=3):
     all_news = []
 
     now_kst = datetime.utcnow() + timedelta(hours=9)
-    today_kst = now_kst.date()
-    start_kst = datetime.combine(today_kst - timedelta(days=1), datetime.min.time()) + timedelta(hours=6)
-    end_kst = datetime.combine(today_kst, datetime.min.time()) + timedelta(hours=6)
+    end_kst = now_kst
+    start_kst = end_kst - timedelta(hours=1)
 
     start_utc = start_kst - timedelta(hours=9)
     end_utc = end_kst - timedelta(hours=9)
@@ -194,11 +204,11 @@ async def crawl_brent_news(start_page=1, end_page=10, concurrency=3):
                     all_news.append(rsl)
                     r.sadd(REDIS_KEY, rsl["url"])
 
-            # with open("brent_news_timewindow_temp.json", "w", encoding="utf-8") as f:
-            #     json.dump(all_news, f, ensure_ascii=False, indent=2)
+    #         with open("brent_news_timewindow_temp.json", "w", encoding="utf-8") as f:
+    #             json.dump(all_news, f, ensure_ascii=False, indent=2)
 
     # with open("brent_oil_news_timewindow.json", "w", encoding="utf-8") as f:
     #     json.dump(all_news, f, ensure_ascii=False, indent=2)
 
 if __name__ == "__main__":
-    asyncio.run(crawl_brent_news(start_page=1, end_page=5, concurrency=5))
+    asyncio.run(crawl_brent_news(start_page=1, end_page=2, concurrency=5))
