@@ -122,7 +122,6 @@ async def crawl_article_detail(crawler, article, run_cfg):
         if not detail or not detail.get("content"):
             return None
 
-        # ✅ published_date 보정
         if article["published_at"]:
             # UTC → KST 변환 + 문자열 포맷
             published_date = (article["published_at"]).strftime("%Y-%m-%d %H:%M")
@@ -133,7 +132,7 @@ async def crawl_article_detail(crawler, article, run_cfg):
             "title": detail["title"],
             "url": article["url"],
             "content": detail["content"],
-            "published_date": published_date  # ✅ 항상 문자열 형태
+            "published_date": published_date 
         }
 
     except Exception as e:
@@ -142,7 +141,7 @@ async def crawl_article_detail(crawler, article, run_cfg):
 
 
 # ----------------------------
-# 전체 크롤링 (KST 기준 어제 06시~오늘 06시 기사)
+# 전체 크롤링 (1시간 단위)
 # ----------------------------
 async def crawl_brent_news(start_page=1, end_page=10, concurrency=3):
     all_news = []
