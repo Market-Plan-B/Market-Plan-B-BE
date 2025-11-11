@@ -44,7 +44,6 @@ def parse_relative_time(text: str):
             except Exception:
                 return None
 
-        # ✅ GMT+2 → UTC로 변환 (-2h)
         dt_utc = dt_gmt2 - timedelta(hours=2)
         return dt_utc
 
@@ -123,7 +122,6 @@ async def crawl_article_detail(crawler, article, run_cfg):
             return None
 
         if article["published_at"]:
-            # UTC → KST 변환 + 문자열 포맷
             published_date = (article["published_at"]).strftime("%Y-%m-%d %H:%M")
         else:
             published_date = None
@@ -136,7 +134,7 @@ async def crawl_article_detail(crawler, article, run_cfg):
         }
 
     except Exception as e:
-        print(f"[⚠️ 상세 크롤링 오류] {article['url']} → {e}")
+        print(f"[상세 크롤링 오류] {article['url']} → {e}")
         return None
 
 
