@@ -18,3 +18,4 @@ python -m playwright install --with-deps chromium
 crawl4ai-setup
 selenium
 redis
+webdriver_manager
