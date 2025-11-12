@@ -1,3 +1,8 @@
+requests
+beautifulsoup4
+redis
+python-dateutil
+apscheduler
 fastapi
 uvicorn[standard]
 psycopg2-binary
