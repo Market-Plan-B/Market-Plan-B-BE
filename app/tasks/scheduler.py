@@ -11,6 +11,7 @@ from app.crawlers.oilprice_crawling import crawl_recent_pages
 from app.crawlers.google_crawling import get_latest_google_news
 from app.crawlers.investing_crawling import crawl_brent_news_hourly
 from app.crawlers.pdf_crawling import download_crude_oil_pdfs
+import asyncio
 
 def run_oilprice():
     """OilPrice 크롤러 실행"""
@@ -35,7 +36,8 @@ def run_google():
 def run_investing():
     """Investing.com 크롤러 실행"""
     try:
-        articles = crawl_brent_news_hourly(start_page=1, end_page=2, concurrency=3)
+        # ✅ 비동기 함수 실행
+        articles = asyncio.run(crawl_brent_news_hourly(start_page=1, end_page=2))
         print(f"Investing.com: {len(articles)}개 기사 수집")
         return articles
     except Exception as e:
