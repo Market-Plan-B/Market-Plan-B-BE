@@ -28,7 +28,7 @@ HEADERS = {
 }
 
 DELAY = 1.5
-DEBUG_MODE = True
+DEBUG_MODE = False
 
 # 시간대 정의
 KST = timezone(timedelta(hours=9))
@@ -155,7 +155,7 @@ def crawl_recent_pages(max_pages=2):
     collected_articles = []
     seen_urls = set()
     
-    print(f"최근 {max_pages}페이지 크롤링 시작")
+    # print(f"최근 {max_pages}페이지 크롤링 시작")
 
     for page in range(1, max_pages + 1):
         if page == 1:
@@ -170,7 +170,7 @@ def crawl_recent_pages(max_pages=2):
             
             articles = soup.select(".categoryArticle__content") or soup.select(".categoryArticle")
             if not articles:
-                print(f"페이지 {page}: 기사를 찾지 못함")
+                # print(f"페이지 {page}: 기사를 찾지 못함")
                 continue
             
             page_count = 0

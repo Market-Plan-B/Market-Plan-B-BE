@@ -30,7 +30,7 @@ REDIS_KEY = "google_news_urls"
 HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
 KST = timezone(timedelta(hours=9))
 UTC = timezone.utc
-DEBUG_MODE = True
+DEBUG_MODE = False
 
 
 # Selenium 설정
@@ -141,8 +141,8 @@ def is_within_kst_day(pub_date):
     start_utc = start_kst.astimezone(UTC)  # 전전낡 21:00 UTC
 
     if DEBUG_MODE:
-        print(f"   🕓 UTC Range: {start_utc.isoformat()} ~ {end_utc.isoformat()}")
-        print(f"   🕓 Article Time (UTC): {pub_date.isoformat()}")
+        print(f"   UTC Range: {start_utc.isoformat()} ~ {end_utc.isoformat()}")
+        print(f"   Article Time (UTC): {pub_date.isoformat()}")
 
     return start_utc <= pub_date < end_utc
 
