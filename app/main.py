@@ -1,7 +1,7 @@
 from fastapi import FastAPI
-from app.routers import auth
+from app.routers import auth, report
+from app.routers import dashboard_router
 import uvicorn
-from app.routers import report
 
 app = FastAPI(
     title="Market Plan B API",
@@ -11,9 +11,9 @@ app = FastAPI(
     redoc_url="/redoc"
 )
 
-
 app.include_router(auth.router)
 app.include_router(report.router)
+app.include_router(dashboard_router.router)
 
 
 if __name__ == "__main__":
