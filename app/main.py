@@ -1,7 +1,8 @@
 from fastapi import FastAPI
 from app.routers import auth
 import uvicorn
-from app.routers import report
+from app.routers import report_router
+from app.routers import analytics_router
 
 app = FastAPI(
     title="Market Plan B API",
@@ -13,7 +14,8 @@ app = FastAPI(
 
 
 app.include_router(auth.router)
-app.include_router(report.router)
+app.include_router(report_router.router)
+app.include_router(analytics_router.router)
 
 
 if __name__ == "__main__":
