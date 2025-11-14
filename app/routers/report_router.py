@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import create_engine, func
 from datetime import datetime
-from app.schemas.report_schema import CardNewsResponse, ReportResponse, NewsItem
+from app.schemas.report_schema import CardNewsResponse, ReportResponse, NewsItem, WeeklyRequest
 from app.db.db_setting import DATABASE_URL, Content, Report
 from pydantic import BaseModel
 
@@ -49,11 +49,6 @@ async def get_daily_report(query_date: str = Query(...), db: Session = Depends(g
         )
     return ReportResponse(start_date=query_date, end_date=query_date, html_resource="")
 
-
-class WeeklyRequest(BaseModel):
-    start_date: str
-    end_date: str
-
 @router.post("/weekly/cardnews", response_model=CardNewsResponse)
 async def get_weekly_cardnews(request: WeeklyRequest, db: Session = Depends(get_db)):
     # end_date = request.end_date
@@ -73,8 +68,6 @@ async def get_weekly_cardnews(request: WeeklyRequest, db: Session = Depends(get_
     ) for c in contents]
     
     return CardNewsResponse(news=news)
-
-
 
 
 @router.post("/weekly/report", response_model=ReportResponse)
