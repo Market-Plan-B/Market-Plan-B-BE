@@ -11,11 +11,11 @@ python-multipart
 pydantic[email]
 PyJWT
 requests
-crawl4ai playwright
-playwright install chromium
-pip install -U crawl4ai playwright bs4 lxml
-python -m playwright install --with-deps chromium
-crawl4ai-setup
+# crawl4ai playwright
+# playwright install chromium
+# pip install -U crawl4ai playwright bs4 lxml
+# python -m playwright install --with-deps chromium
+# crawl4ai-setup
 selenium
 redis
 webdriver_manager
