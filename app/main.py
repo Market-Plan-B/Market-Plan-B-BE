@@ -1,8 +1,9 @@
 from fastapi import FastAPI
-from app.routers import auth, report
+from fastapi.middleware.cors import CORSMiddleware
+from app.routers import auth, report_router
 from app.routers import dashboard_router
 import uvicorn
-from app.routers import report
+from app.routers import report_router
 from app.routers import analytics_router
 
 app = FastAPI(
@@ -13,8 +14,17 @@ app = FastAPI(
     redoc_url="/redoc"
 )
 
+# CORS 설정
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.include_router(auth.router)
-app.include_router(report.router)
+app.include_router(report_router.router)
 app.include_router(dashboard_router.router)
 app.include_router(analytics_router.router)
 
