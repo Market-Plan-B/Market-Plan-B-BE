@@ -6,7 +6,7 @@ from app.schemas.report_schema import CardNewsResponse, ReportResponse, NewsItem
 from app.db.db_setting import DATABASE_URL, Content, Report
 from pydantic import BaseModel
 
-router = APIRouter(prefix="/api/reports", tags=["report"])
+router = APIRouter(prefix="/api/reports", tags=["reports"])
 
 engine = create_engine(DATABASE_URL)
 

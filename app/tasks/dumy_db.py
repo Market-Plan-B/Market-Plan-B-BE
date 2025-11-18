@@ -234,15 +234,38 @@ def seed_reports(n=5):
 
 def seed_reports_contents(reports, contents, n=5):
     items = []
-    for _ in range(n):
+
+    # 이미 존재하는 pair 미리 로드 (재실행 대비)
+    existing_pairs = set()
+    for report in reports:
+        for rc in report.contents:
+            existing_pairs.add((rc.report_id, rc.content_id))
+
+    tries = 0
+
+    while len(items) < n and tries < 50:
+        tries += 1
+
+        report_obj = random.choice(reports)
+        content_obj = random.choice(contents)
+
+        pair = (report_obj.id, content_obj.id)
+
+        # 이미 있는 pair 는 skip
+        if pair in existing_pairs:
+            continue
+
         rc = ReportContent(
-            report_id=random.choice(reports).id,
-            content_id=random.choice(contents).id
+            report_id=report_obj.id,
+            content_id=content_obj.id
         )
         session.add(rc)
         items.append(rc)
+        existing_pairs.add(pair)
+
     session.commit()
     return items
+
 
 
 # -----------------------------------------------------------------
