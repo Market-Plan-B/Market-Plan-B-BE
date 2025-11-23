@@ -15,6 +15,7 @@ from app.db.database import get_db
 from app.db.db_setting import Region, Content, Analytics, RecommendedStrategy
 from datetime import datetime, date
 from sqlalchemy import func
+from sqlalchemy import Date
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
@@ -44,7 +45,7 @@ async def get_impact_overall(db: Session = Depends(get_db)):
 
 @router.get("/region-impact", response_model=RegionImpactResponse)
 async def get_region_impact(region_code: str = Query(..., description="국가 코드"), db: Session = Depends(get_db)):
-    """국가별 뉴스 요약 정보 조회(최대 5개)"""
+    """국가별 뉴스 요약 정보 조회(최대 5개, 오늘 생성된 데이터만)"""
     region = db.query(Region).filter(Region.code == region_code).first()
     
     if not region:
@@ -52,9 +53,10 @@ async def get_region_impact(region_code: str = Query(..., description="국가 �
             region=RegionInfo(id=0, name="", code=region_code, region_score=0.0),
             contents=[]
         )
-    
+
     contents = db.query(Content).filter(
-        Content.region_id == region.id
+        Content.region_id == region.id,
+        Content.created_at.cast(Date) == date.today() # 오늘 날짜 조건 추가
     ).order_by(Content.source_score.desc()).limit(5).all()
     
     return RegionImpactResponse(
