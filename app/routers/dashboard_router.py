@@ -22,7 +22,9 @@ router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 @router.get("/map-impact", response_model=List[MapImpactResponse])
 async def get_map_impact(db: Session = Depends(get_db)):
     """지도 정보 조회 - 전 세계 지도를 기반으로 각 국가의 영향도가 색상으로 시각화"""
-    regions = db.query(Region).all()
+    today = date.today()
+    # 당일 created_at으로 생성된 Region 데이터만 조회
+    regions = db.query(Region).filter(Region.created_at.cast(Date) == today).all()
     return [
         MapImpactResponse(
             id=region.id,
