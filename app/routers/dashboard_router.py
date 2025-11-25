@@ -76,7 +76,8 @@ async def get_region_impact(region_code: str = Query(..., description="국가 �
                 summary=content.summary or "",
                 source_score=float(content.source_score) if content.source_score else 0.0,
                 url=content.url or "",
-                published_date=content.published_at.strftime("%Y-%m-%d") if content.published_at else ""
+                published_date=content.published_at.strftime("%Y-%m-%d") if content.published_at else "",
+                created_at=content.created_at.strftime("%Y-%m-%d %H:%M:%S") if content.created_at else ""
             )
             for content in contents
         ]
