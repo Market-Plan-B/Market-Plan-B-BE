@@ -29,6 +29,7 @@ async def get_map_impact(db: Session = Depends(get_db)):
         MapImpactResponse(
             id=region.id,
             code=region.code,
+            name=region.name,
             region_score=float(region.region_score) if region.region_score else 0.0
         )
         for region in regions

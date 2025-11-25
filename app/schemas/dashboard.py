@@ -5,6 +5,7 @@ from datetime import date
 class MapImpactResponse(BaseModel):
     id: int
     code: str
+    name: str
     region_score: float
 
 class OverallImpactResponse(BaseModel):
