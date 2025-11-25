@@ -24,6 +24,7 @@ class NewsContent(BaseModel):
     source_score: float
     url: str
     published_date: str
+    created_at: str
 
 class RegionImpactResponse(BaseModel):
     region: RegionInfo
