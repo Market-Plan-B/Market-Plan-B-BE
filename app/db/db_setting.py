@@ -82,9 +82,13 @@ class RecommendedStrategy(Base):
     __tablename__ = "recommended_strategies"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    date = Column(Date, nullable=False)
-    title = Column(String(255), nullable=False)
-    description = Column(Text, nullable=False)
+    name = Column(String(255))
+    horizon = Column(String(50))
+    objective = Column(Text)
+    preconditions = Column(Text)
+    actions = Column(JSON)
+    data_evidence = Column(JSON)
+    risk_note = Column(Text)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 

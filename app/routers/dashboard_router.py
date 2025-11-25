@@ -95,18 +95,23 @@ async def get_factor_impact(db: Session = Depends(get_db)):
 
 @router.get("/strategies", response_model=StrategiesResponse)
 async def get_strategies(db: Session = Depends(get_db)):
-    """AI 기반 대응책 제안 정보 조회"""
+    """AI 기반 대응책 제안 정보 조회 (당일 생성된 데이터만)"""
     today = date.today()
     strategies = db.query(RecommendedStrategy).filter(
-        RecommendedStrategy.date == today
+        RecommendedStrategy.created_at.cast(Date) == today
     ).all()
     
     return StrategiesResponse(
         strategies=[
             Strategy(
                 id=strategy.id,
-                title=strategy.title,
-                description=strategy.description
+                name=strategy.name or "",
+                horizon=strategy.horizon or "",
+                objective=strategy.objective or "",
+                preconditions=strategy.preconditions,
+                actions=strategy.actions or [],
+                data_evidence=strategy.data_evidence or {},
+                risk_note=strategy.risk_note
             )
             for strategy in strategies
         ]

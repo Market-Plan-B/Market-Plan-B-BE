@@ -36,8 +36,13 @@ class FactorImpactResponse(BaseModel):
 
 class Strategy(BaseModel):
     id: int
-    title: str
-    description: str
+    name: str
+    horizon: str
+    objective: str
+    preconditions: str | None = None
+    actions: List[str]            
+    data_evidence: Dict[str, str] 
+    risk_note: str | None = None
 
 class StrategiesResponse(BaseModel):
     strategies: List[Strategy]
