@@ -1,6 +1,6 @@
 from pydantic import BaseModel
 from typing import List, Dict
-from datetime import date
+from datetime import date, datetime
 
 class MapImpactResponse(BaseModel):
     id: int
@@ -36,8 +36,14 @@ class FactorImpactResponse(BaseModel):
 
 class Strategy(BaseModel):
     id: int
-    title: str
-    description: str
+    name: str
+    horizon: str
+    objective: str
+    preconditions: str
+    actions: List[str]
+    data_evidence: Dict
+    risk_note: str
+    created_at: datetime
 
 class StrategiesResponse(BaseModel):
     strategies: List[Strategy]

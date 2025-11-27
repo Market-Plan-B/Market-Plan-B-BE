@@ -1,0 +1,77 @@
+{
+  "prediction": {
+    "pred_return": -0.01788816601037979,
+    "today_close": 62.560001373291016,
+    "predicted_next_close": 61.440917683116
+  },
+  "xai": [
+    {
+      "feature": "brent_wti_spread",
+      "importance": 2.4155046048690565e-05
+    },
+    {
+      "feature": "brent_ret_5d",
+      "importance": 0.0008882871479727328
+    },
+    {
+      "feature": "brent_ma_5",
+      "importance": 9.335601498605683e-05
+    },
+    {
+      "feature": "brent_ma_20",
+      "importance": 0.00020133033103775233
+    },
+    {
+      "feature": "brent_ma_60",
+      "importance": 0.00010384014603914693
+    },
+    {
+      "feature": "wti_ma_5",
+      "importance": 6.471675442298874e-05
+    },
+    {
+      "feature": "wti_ma_20",
+      "importance": 9.41477992455475e-05
+    },
+    {
+      "feature": "wti_ma_60",
+      "importance": 9.999229951063171e-05
+    },
+    {
+      "feature": "brent_vol_5d",
+      "importance": 0.00012425817840266973
+    },
+    {
+      "feature": "wti_vol_5d",
+      "importance": 4.0674269257579e-05
+    },
+    {
+      "feature": "high_low_range",
+      "importance": 0.00028143494273535907
+    },
+    {
+      "feature": "news_impact_brent_day0_value",
+      "importance": 6.594928709091619e-05
+    },
+    {
+      "feature": "news_impact_brent_day1_value",
+      "importance": 0.00010484037193236873
+    },
+    {
+      "feature": "news_impact_brent_day2_value",
+      "importance": 0.00015329680172726512
+    },
+    {
+      "feature": "news_impact_brent_day3_value",
+      "importance": 0.000161562449648045
+    },
+    {
+      "feature": "news_impact_brent_day4_value",
+      "importance": 0.00013837538426741958
+    },
+    {
+      "feature": "news_impact_brent_total",
+      "importance": 0.00026822788640856743
+    }
+  ]
+}

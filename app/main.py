@@ -5,6 +5,7 @@ from app.routers import dashboard_router
 import uvicorn
 from app.routers import report_router
 from app.routers import analytics_router
+from app.routers import ai_router  # AI 라우터 추가
 
 app = FastAPI(
     title="Market Plan B API",
@@ -27,6 +28,7 @@ app.include_router(auth.router)
 app.include_router(report_router.router)
 app.include_router(dashboard_router.router)
 app.include_router(analytics_router.router)
+app.include_router(ai_router.router)  # AI 라우터 등록
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)

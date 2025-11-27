@@ -16,6 +16,7 @@ from app.db.db_setting import Region, Content, Analytics, RecommendedStrategy
 from datetime import datetime, date
 from sqlalchemy import func
 from sqlalchemy import Date
+import json
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
@@ -98,15 +99,21 @@ async def get_strategies(db: Session = Depends(get_db)):
     """AI 기반 대응책 제안 정보 조회"""
     today = date.today()
     strategies = db.query(RecommendedStrategy).filter(
-        RecommendedStrategy.date == today
+        func.date(RecommendedStrategy.created_at) == today
     ).all()
     
     return StrategiesResponse(
         strategies=[
             Strategy(
                 id=strategy.id,
-                title=strategy.title,
-                description=strategy.description
+                name=strategy.name,
+                horizon=strategy.horizon,
+                objective=strategy.objective,
+                preconditions=strategy.preconditions,
+                actions=strategy.actions if strategy.actions else [],
+                data_evidence=strategy.data_evidence if strategy.data_evidence else {},
+                risk_note=strategy.risk_note,
+                created_at=strategy.created_at
             )
             for strategy in strategies
         ]
