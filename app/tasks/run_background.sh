@@ -8,8 +8,8 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")/.."
 
 cd "$PROJECT_ROOT" || exit 1
 
-# nohup으로 백그라운드 실행 
-PYTHONPATH="$PROJECT_ROOT" nohup python app/tasks/scheduler.py > app/tasks/scheduler.log 2>&1 &
+# nohup으로 백그라운드 실행 (unbuffered output)
+PYTHONPATH="$PROJECT_ROOT" nohup python -u app/tasks/scheduler.py > app/tasks/scheduler.log 2>&1 &
 
 # PID 저장
 echo $! > app/tasks/scheduler.pid
