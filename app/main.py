@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routers import auth, report_router
+from app.routers import auth, report_router, admin
 from app.routers import dashboard_router
 import uvicorn
 from app.routers import report_router
@@ -27,6 +27,7 @@ app.include_router(auth.router)
 app.include_router(report_router.router)
 app.include_router(dashboard_router.router)
 app.include_router(analytics_router.router)
+app.include_router(admin.router)
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)
