@@ -38,57 +38,52 @@ class Region(Base):
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
-    contents = relationship("Content", back_populates="region", cascade="all, delete-orphan")
-
 
 # ----------------------------
-# CONTENTS
+# CONTENTS (뉴스 데이터 저장)
 # ----------------------------
 class Content(Base):
     __tablename__ = "contents"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    region_id = Column(Integer, ForeignKey("regions.id", ondelete="SET NULL"))
-    title = Column(String(500), nullable=False)
-    summary = Column(Text)
-    source_score = Column(Numeric(3, 2))
-    url = Column(String(500))
-    published_at = Column(DateTime)
+    title = Column(String(500), nullable=False)  # 뉴스 제목
+    summary = Column(Text)  # 뉴스 요약
+    source_score = Column(Numeric(3, 2))  # 감정/신뢰도 점수
+    url = Column(String(500))  # 뉴스 URL
+    published_at = Column(DateTime)  # 뉴스 발행 시간
     created_at = Column(DateTime, server_default=func.now())
 
-    region = relationship("Region", back_populates="contents")
     notifications = relationship("Notification", back_populates="content")
     report_links = relationship("ReportContent", back_populates="content", cascade="all, delete-orphan")
 
 
 # ----------------------------
-# ANALYTICS
+# ANALYTICS (AI 예측 결과 저장)
 # ----------------------------
 class Analytics(Base):
     __tablename__ = "analytics"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     date = Column(Date, nullable=False)
-    overall_score = Column(Numeric(3, 2))
-    features = Column(JSON)
-    variable_scores = Column(JSON)
+    overall_score = Column(Numeric(3, 2))  # 예측 수익률
+    features = Column(JSON)  # XAI 피처 중요도
     created_at = Column(DateTime, server_default=func.now())
 
 
 # ----------------------------
-# RECOMMENDED STRATEGIES
+# RECOMMENDED STRATEGIES (AI 대응책 저장)
 # ----------------------------
 class RecommendedStrategy(Base):
     __tablename__ = "recommended_strategies"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    name = Column(String(255))
-    horizon = Column(String(50))
-    objective = Column(Text)
-    preconditions = Column(Text)
-    actions = Column(JSON)
-    data_evidence = Column(JSON)
-    risk_note = Column(Text)
+    name = Column(String(255), nullable=False)  # 전략 이름
+    horizon = Column(String(50), nullable=False)  # 기간 (1-3일, 1주 등)
+    objective = Column(Text, nullable=False)  # 목표
+    preconditions = Column(Text)  # 선행 조건
+    actions = Column(JSON, nullable=False)  # 행동 목록
+    data_evidence = Column(JSON, nullable=False)  # 데이터 근거
+    risk_note = Column(Text)  # 리스크 메모
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
@@ -159,16 +154,16 @@ class ChatSuggestion(Base):
 
 
 # ----------------------------
-# REPORTS
+# REPORTS (AI 일일 리포트 저장)
 # ----------------------------
 class Report(Base):
     __tablename__ = "reports"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    report_type = Column(String(20), nullable=False)
-    start_date = Column(Date, nullable=False)
-    end_date = Column(Date, nullable=False)
-    html_content = Column(Text, nullable=False)
+    report_type = Column(String(20), nullable=False)  # 'daily' 고정
+    start_date = Column(Date, nullable=False)  # 리포트 날짜
+    end_date = Column(Date, nullable=False)  # 리포트 날짜 (start_date와 동일)
+    html_content = Column(Text, nullable=False)  # AI 생성 HTML 리포트
     created_at = Column(DateTime, server_default=func.now())
 
     contents = relationship("ReportContent", back_populates="report", cascade="all, delete-orphan")
@@ -186,6 +181,44 @@ class ReportContent(Base):
 
     report = relationship("Report", back_populates="contents")
     content = relationship("Content", back_populates="report_links")
+
+
+# ----------------------------
+# CONTENT-REGION RELATION (다대다)
+# ----------------------------
+class ContentRegion(Base):
+    __tablename__ = "contents_regions"
+
+    content_id = Column(Integer, ForeignKey("contents.id", ondelete="CASCADE"), primary_key=True)
+    region_id = Column(Integer, ForeignKey("regions.id", ondelete="CASCADE"), primary_key=True)
+    created_at = Column(DateTime, server_default=func.now())
+
+
+# ----------------------------
+# CRAWLING SOURCES
+# ----------------------------
+class CrawlingSource(Base):
+    __tablename__ = "crawling_sources"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    base_url = Column(String(500), nullable=False)
+    source_name = Column(String(500), nullable=False)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+# ----------------------------
+# CRAWLING CATEGORIES
+# ----------------------------
+class CrawlingCategory(Base):
+    __tablename__ = "crawling_categories"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    category = Column(String(200), nullable=False)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
 
 # ----------------------------
