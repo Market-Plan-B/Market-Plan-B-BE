@@ -71,10 +71,6 @@ async def bulk_update_keywords(
     db: Session = Depends(get_db)
 ):
     """키워드 일괄 적용"""
-    # 시간 디버깅
-    print(f"Python 시간: {datetime.now()}")
-    print(f"Python KST: {datetime.now(timezone(timedelta(hours=9)))}")
-    
     # 1. 모든 소스에 선택된 카테고리 적용
     sources = db.query(CrawlingSource).all()
     
@@ -84,7 +80,7 @@ async def bulk_update_keywords(
     # 2. 모든 카테고리를 비활성화
     db.query(CrawlingCategory).update({
         "is_active": False,
-        "updated_at": func.now() + timedelta(hours=9)
+        "updated_at": datetime.now()
     })
     
     # 3. 선택된 카테고리만 활성화
@@ -93,7 +89,7 @@ async def bulk_update_keywords(
             CrawlingCategory.id.in_(keyword_update.category_ids)
         ).update({
             "is_active": True,
-            "updated_at": func.now() + timedelta(hours=9)
+            "updated_at": datetime.now()
         })
     
     db.commit()
