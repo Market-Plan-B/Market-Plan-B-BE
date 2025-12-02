@@ -25,6 +25,7 @@ class NewsContent(BaseModel):
     source_score: float
     url: str
     published_date: str
+    created_at: str
 
 class RegionImpactResponse(BaseModel):
     region: RegionInfo
@@ -39,11 +40,10 @@ class Strategy(BaseModel):
     name: str
     horizon: str
     objective: str
-    preconditions: str
-    actions: List[str]
-    data_evidence: Dict
-    risk_note: str
-    created_at: datetime
+    preconditions: str | None = None
+    actions: List[str]            
+    data_evidence: Dict[str, str] 
+    risk_note: str | None = None
 
 class StrategiesResponse(BaseModel):
     strategies: List[Strategy]
