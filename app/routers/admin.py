@@ -1,5 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy.sql import func
+from datetime import datetime, timezone, timedelta
 from app.db.database import get_db
 from app.models.crawling_source import CrawlingSource
 from app.models.crawling_category import CrawlingCategory
@@ -76,13 +78,19 @@ async def bulk_update_keywords(
         source.category_ids = keyword_update.category_ids
     
     # 2. 모든 카테고리를 비활성화
-    db.query(CrawlingCategory).update({"is_active": False})
+    db.query(CrawlingCategory).update({
+        "is_active": False,
+        "updated_at": datetime.now()
+    })
     
     # 3. 선택된 카테고리만 활성화
     if keyword_update.category_ids:
         db.query(CrawlingCategory).filter(
             CrawlingCategory.id.in_(keyword_update.category_ids)
-        ).update({"is_active": True})
+        ).update({
+            "is_active": True,
+            "updated_at": datetime.now()
+        })
     
     db.commit()
     
