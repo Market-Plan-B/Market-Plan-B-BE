@@ -1,6 +1,6 @@
 from sqlalchemy import (
     create_engine, Column, Integer, String, Text, Boolean, Date,
-    DateTime, Numeric, JSON, ForeignKey, func
+    DateTime, Numeric, JSON, ForeignKey, func, Enum
 )
 from sqlalchemy.orm import declarative_base, relationship
 
@@ -15,9 +15,12 @@ class User(Base):
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
+    role = Column(Enum('admin', 'user', name='user_role'), nullable=False, default='user')
     name = Column(String(100), nullable=False)
     email = Column(String(255), unique=True, nullable=False)
     password = Column(String(255), nullable=False)
+    refresh_token = Column(String(500), nullable=True)
+    refresh_token_expire = Column(DateTime, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
