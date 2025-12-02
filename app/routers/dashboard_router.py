@@ -12,7 +12,7 @@ from app.schemas.dashboard import (
     Strategy
 )
 from app.db.database import get_db
-from app.db.db_setting import Region, Content, Analytics, RecommendedStrategy
+from app.db.db_setting import Region, Content, Analytics, RecommendedStrategy, ContentRegion
 from datetime import datetime, date
 from sqlalchemy import func
 from sqlalchemy import Date
@@ -58,9 +58,26 @@ async def get_region_impact(region_code: str = Query(..., description="국가 �
             contents=[]
         )
 
+    # 매핑 테이블을 통해 컨텐츠 조회
+    content_ids = db.query(ContentRegion.content_id).filter(
+        ContentRegion.region_id == region.id
+    ).all()
+    content_ids = [cid[0] for cid in content_ids]
+    
+    if not content_ids:
+        return RegionImpactResponse(
+            region=RegionInfo(
+                id=region.id,
+                name=region.name,
+                code=region.code,
+                region_score=float(region.region_score) if region.region_score else 0.0
+            ),
+            contents=[]
+        )
+    
     contents = db.query(Content).filter(
-        Content.region_id == region.id,
-        Content.created_at.cast(Date) == date.today() # 오늘 날짜 조건 추가
+        Content.id.in_(content_ids),
+        Content.created_at.cast(Date) == date.today()
     ).order_by(Content.source_score.desc()).limit(5).all()
     
     return RegionImpactResponse(
@@ -99,36 +116,23 @@ async def get_factor_impact(db: Session = Depends(get_db)):
 async def get_strategies(db: Session = Depends(get_db)):
     """AI 기반 대응책 제안 정보 조회 (당일 생성된 데이터만)"""
     today = date.today()
+
     strategies = db.query(RecommendedStrategy).filter(
-<<<<<<< HEAD
-        func.date(RecommendedStrategy.created_at) == today
-=======
         RecommendedStrategy.created_at.cast(Date) == today
->>>>>>> fbcb7b7f072ef4f8900d1d6471831e17aba2b577
     ).all()
     
     return StrategiesResponse(
         strategies=[
             Strategy(
                 id=strategy.id,
-<<<<<<< HEAD
-                name=strategy.name,
-                horizon=strategy.horizon,
-                objective=strategy.objective,
-                preconditions=strategy.preconditions,
-                actions=strategy.actions if strategy.actions else [],
-                data_evidence=strategy.data_evidence if strategy.data_evidence else {},
-                risk_note=strategy.risk_note,
-                created_at=strategy.created_at
-=======
                 name=strategy.name or "",
                 horizon=strategy.horizon or "",
                 objective=strategy.objective or "",
                 preconditions=strategy.preconditions,
                 actions=strategy.actions or [],
                 data_evidence=strategy.data_evidence or {},
-                risk_note=strategy.risk_note
->>>>>>> fbcb7b7f072ef4f8900d1d6471831e17aba2b577
+                risk_note=strategy.risk_note or "",
+                created_at=strategy.created_at
             )
             for strategy in strategies
         ]

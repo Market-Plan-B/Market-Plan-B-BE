@@ -1,0 +1,252 @@
+"""
+통합 스케줄러: 크롤링 → AI 모델링 파이프라인
+매 시간 정각에 실행
+"""
+from apscheduler.schedulers.blocking import BlockingScheduler
+from apscheduler.triggers.cron import CronTrigger
+from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, TimeoutError
+import json
+import logging
+
+from app.crawlers.oilprice_crawling import crawl_oilprice_last_hour
+from app.crawlers.google_crawling import get_latest_google_news
+from app.crawlers.investing_crawling import crawl_brent_news_hourly
+from app.crawlers.yahoo_crawling import YahooFinanceNewsScraperPlaywright
+from app.db.database import SessionLocal
+from app.services.ai_service import run_full_pipeline, load_news_from_json, save_contents, save_regions, update_region_scores
+
+# 로깅 설정
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('app/tasks/full_scheduler.log'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
+
+
+def run_single_crawler(crawler_func, timeout=2700):
+    """단일 크롤러 실행"""
+    try:
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(crawler_func)
+            return future.result(timeout=timeout)
+    except TimeoutError:
+        logger.warning(f"{crawler_func.__name__} 타임아웃")
+        return []
+    except Exception as e:
+        logger.error(f"{crawler_func.__name__} 실패: {e}")
+        return []
+
+
+def run_oilprice():
+    try:
+        articles = crawl_oilprice_last_hour(max_pages=2)
+        logger.info(f"OilPrice: {len(articles)}개")
+        return articles
+    except Exception as e:
+        logger.error(f"OilPrice 실패: {e}")
+        return []
+
+
+def run_google():
+    try:
+        articles = get_latest_google_news()
+        logger.info(f"Google: {len(articles)}개")
+        return articles
+    except Exception as e:
+        logger.error(f"Google 실패: {e}")
+        return []
+
+
+def run_investing():
+    try:
+        import asyncio
+        articles = asyncio.run(crawl_brent_news_hourly(start_page=1, end_page=2))
+        logger.info(f"Investing: {len(articles)}개")
+        return articles
+    except Exception as e:
+        logger.error(f"Investing 실패: {e}")
+        return []
+
+
+def run_yahoo():
+    try:
+        scraper = YahooFinanceNewsScraperPlaywright()
+        df = scraper.scrape_news(scroll_count=15, max_articles=200, headless=True)
+        articles = df.to_dict('records') if not df.empty else []
+        logger.info(f"Yahoo: {len(articles)}개")
+        return articles
+    except Exception as e:
+        logger.error(f"Yahoo 실패: {e}")
+        return []
+
+
+def crawl_all_news():
+    """모든 크롤러 병렬 실행 → JSON 저장"""
+    logger.info("=" * 80)
+    logger.info("크롤링 시작")
+    logger.info("=" * 80)
+    
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        futures = {
+            'oilprice': executor.submit(run_single_crawler, run_oilprice, 2700),
+            'google': executor.submit(run_single_crawler, run_google, 2700),
+            'investing': executor.submit(run_single_crawler, run_investing, 2700),
+            'yahoo': executor.submit(run_single_crawler, run_yahoo, 2700),
+        }
+        
+        oilprice = futures['oilprice'].result()
+        google = futures['google'].result()
+        investing = futures['investing'].result()
+        yahoo = futures['yahoo'].result()
+    
+    all_articles = oilprice + google + investing + yahoo
+    
+    logger.info(f"총 {len(all_articles)}개 기사 수집")
+    
+    # JSON 저장
+    date_str = datetime.now().strftime('%Y%m%d')
+    json_path = f'app/ai/repository/data/news/news_{date_str}.json'
+    
+    with open(json_path, 'w', encoding='utf-8') as f:
+        json.dump(all_articles, f, ensure_ascii=False, indent=2)
+    
+    logger.info(f"저장 완료: {json_path}")
+    
+    return json_path, all_articles
+
+
+def save_hourly_contents(json_path):
+    """1시간마다 크롤링 데이터를 contents에만 저장"""
+    db = SessionLocal()
+    
+    try:
+        logger.info("Contents 저장 시작")
+        
+        from app.ai.services.unstructured_summary import daily_news_data
+        raw_news = load_news_from_json(json_path)
+        
+        if not raw_news:
+            logger.warning("뉴스 데이터가 없습니다")
+            return
+        
+        if raw_news and "summary_embedding" in raw_news[0]:
+            news_list = raw_news
+        else:
+            news_list = daily_news_data(raw_news)
+        
+        save_regions(db, news_list)
+        saved_contents = save_contents(db, news_list)
+        update_region_scores(db, news_list)
+        
+        logger.info(f"Contents 저장 완료: {len(saved_contents)}개")
+        
+    except Exception as e:
+        logger.error(f"Contents 저장 실패: {e}", exc_info=True)
+    finally:
+        db.close()
+
+
+def run_ai_pipeline(json_path):
+    """24시간 데이터로 전체 AI 파이프라인 실행"""
+    db = SessionLocal()
+    
+    try:
+        logger.info("전체 AI 파이프라인 시작")
+        
+        result = run_full_pipeline(db, datetime.now(), json_path)
+        
+        logger.info(f"AI 파이프라인 완료: analytics_id={result['analytics'].id}, "
+                   f"strategies={len(result['strategies'])}, "
+                   f"report_id={result['report'].id}, "
+                   f"contents={len(result['contents'])}")
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"AI 파이프라인 실패: {e}", exc_info=True)
+        raise
+        
+    finally:
+        db.close()
+
+
+def hourly_job():
+    """1시간마다: 크롤링 → contents 저장"""
+    try:
+        json_path, articles = crawl_all_news()
+        
+        if not articles:
+            logger.warning("크롤링된 기사가 없습니다")
+            return
+        
+        save_hourly_contents(json_path)
+        
+        logger.info("시간별 크롤링 작업 완료")
+        
+    except Exception as e:
+        logger.error(f"시간별 작업 실패: {e}", exc_info=True)
+
+
+def daily_job():
+    """24시간마다: 전체 AI 파이프라인 실행"""
+    try:
+        import os
+        date_str = datetime.now().strftime('%Y%m%d')
+        json_path = f'app/ai/repository/data/news/news_{date_str}.json'
+        
+        if not os.path.exists(json_path):
+            logger.error(f"24시간 데이터 파일 없음: {json_path}")
+            return
+        
+        result = run_ai_pipeline(json_path)
+        
+        logger.info("=" * 80)
+        logger.info("일일 전체 파이프라인 완료")
+        logger.info("=" * 80)
+        
+    except Exception as e:
+        logger.error(f"일일 작업 실패: {e}", exc_info=True)
+
+
+def main():
+    """스케줄러 시작"""
+    scheduler = BlockingScheduler()
+    
+    # 매 시간 정각: 크롤링 + contents 저장
+    scheduler.add_job(
+        hourly_job,
+        CronTrigger(minute=0),
+        id='hourly_crawl',
+        max_instances=1,
+        misfire_grace_time=3600,
+        coalesce=True
+    )
+    
+    # 매일 자정: 24시간 데이터로 전체 파이프라인
+    scheduler.add_job(
+        daily_job,
+        CronTrigger(hour=0, minute=5),
+        id='daily_pipeline',
+        max_instances=1,
+        misfire_grace_time=3600,
+        coalesce=True
+    )
+    
+    logger.info("통합 스케줄러 시작")
+    logger.info("- 매 시간 정각: 크롤링 + contents 저장")
+    logger.info("- 매일 00:05: 전체 AI 파이프라인")
+    
+    try:
+        scheduler.start()
+    except KeyboardInterrupt:
+        logger.info("스케줄러 종료")
+        scheduler.shutdown()
+
+
+if __name__ == "__main__":
+    main()

@@ -1,9 +1,5 @@
 """
-AI 모델 실행 및 결과 저장 서비스
-- 일일 모델링 실행
-- 대응책 생성
-- 리포트 생성
-- 기존 DB 테이블에 저장
+AI 전체 파이프라인 (예측 + 대응책 + 리포트 + DB 저장)
 """
 from datetime import datetime, timedelta, date
 from sqlalchemy.orm import Session
@@ -18,63 +14,43 @@ from app.ai.services.unstructured_summary import daily_news_data
 from app.ai.nodes.actiongenerator import actiongenerator
 from app.ai.nodes.reportgenerator import reportgenerator
 
-from app.db.db_setting import Analytics, RecommendedStrategy, Report, Content
+from app.db.db_setting import Analytics, RecommendedStrategy, Report, Content, Region, ReportContent
+
+# ISO 국가 코드 매핑
+COUNTRY_CODES = {
+    "미국": "USA", "United States": "USA", "USA": "USA",
+    "중국": "CN", "China": "CN",
+    "러시아": "RU", "Russia": "RU",
+    "사우디아라비아": "SA", "Saudi Arabia": "SA",
+    "이란": "IR", "Iran": "IR",
+    "이라크": "IQ", "Iraq": "IQ",
+    "UAE": "AE", "아랍에미리트": "AE",
+    "한국": "KR", "대한민국": "KR", "South Korea": "KR",
+    "일본": "JP", "Japan": "JP",
+    "독일": "DE", "Germany": "DE",
+    "영국": "GB", "UK": "GB", "United Kingdom": "GB",
+    "프랑스": "FR", "France": "FR",
+}
 
 
-def load_news_from_file() -> list:
-    """
-    테스트용: 파일에서 뉴스 데이터 로드
-    app/ai/repository/data/news 폴더의 첫 번째 JSON 파일 사용
-    """
-    load_path = "app/ai/repository/data/news"
-    
-    if not os.path.exists(load_path):
-        raise FileNotFoundError(f"{load_path} 폴더가 없습니다")
-    
-    files = [f for f in os.listdir(load_path) if f.endswith('.json')]
-    
-    if not files:
-        raise FileNotFoundError(f"{load_path}에 JSON 파일이 없습니다")
-    
-    file_path = os.path.join(load_path, files[0])
-    with open(file_path, "r", encoding="utf-8") as f:
-        data = json.load(f)
-    
-    # 리스트가 아니면 리스트로 변환
-    if not isinstance(data, list):
-        data = [data]
-    
-    return data
+def get_country_code(country_name: str) -> str:
+    """국가명을 ISO 코드로 변환"""
+    return COUNTRY_CODES.get(country_name, "XX")
 
 
-def load_news_from_db(db: Session, start_time: datetime, end_time: datetime) -> list:
-    """
-    실제 운영용: DB에서 뉴스 데이터 로드
-    전날 06시 ~ 당일 06시 데이터 조회
-    """
-    news_records = db.query(Content).filter(
-        Content.published_at >= start_time,
-        Content.published_at < end_time
-    ).all()
+def load_news_from_json(json_path: str) -> list:
+    """크롤링된 JSON 파일에서 뉴스 로드"""
+    with open(json_path, "r", encoding="utf-8") as f:
+        news_data = json.load(f)
     
-    # DB 레코드를 AI 모델 입력 형식으로 변환
-    news_list = []
-    for record in news_records:
-        news_list.append({
-            "title": record.title,
-            "summary": record.summary or "",
-            "content": record.summary or "",  # content 필드가 없으면 summary 사용
-            "published": record.published_at.isoformat() if record.published_at else None,
-            "url": record.url,
-            "sentiment": {"score": float(record.source_score) if record.source_score else 0.0},
-            "trust": {"score": float(record.source_score) if record.source_score else 0.0}
-        })
+    if not isinstance(news_data, list):
+        news_data = [news_data]
     
-    return news_list
+    return news_data
 
 
 def build_compact_news_list(unstructured_data: list, max_news: int = 5) -> str:
-    """뉴스 데이터를 압축된 문자열로 변환"""
+    """뉴스 압축"""
     compact_list = []
     
     for idx, item in enumerate(unstructured_data[:max_news], start=1):
@@ -96,117 +72,27 @@ def build_compact_news_list(unstructured_data: list, max_news: int = 5) -> str:
     return "\n".join(compact_list)
 
 
-def run_daily_modeling(news_list: list, start_date: str = "2025-11-18") -> dict:
-    """
-    일일 모델링 실행
-    
-    Returns:
-        {"prediction": {...}, "xai": [...]}
-    """
-    df = build_full_dataset(news=news_list)
-    df_filtered = df[df.index >= pd.to_datetime(start_date)]
-    df_refined = unstructure_refine(df_filtered)
-    output = run_inference(news_list=news_list, df=df_refined)
-    
-    return output
-
-
-def generate_action_plan(
-    date: str,
-    structured_data: pd.DataFrame,
-    model_prediction: dict,
-    xai_result: list,
-    unstructured_data: str
-) -> dict:
-    """대응책 생성"""
-    action_json_str = actiongenerator(
-        date=date,
-        structured_data=structured_data,
-        model_prediction=model_prediction,
-        xai_result=xai_result,
-        unstructured_data=unstructured_data
-    )
-    
-    return json.loads(action_json_str)
-
-
-def generate_daily_report(
-    date: str,
-    structured_data: pd.DataFrame,
-    model_prediction: dict,
-    xai_result: list,
-    unstructured_data: str,
-    action_strategies: dict
-) -> str:
-    """일일 리포트 생성 (HTML)"""
-    minimal_strategies = {
-        "strategies": [
-            {
-                "name": s["name"],
-                "horizon": s["horizon"],
-                "objective": s["objective"],
-                "actions": s["actions"],
-                "data_evidence": s["data_evidence"],
-                "risk_note": s["risk_note"],
-            }
-            for s in action_strategies.get("strategies", [])
-        ]
-    }
-    
-    minimal_strategies_str = json.dumps(minimal_strategies, ensure_ascii=False, indent=2)
-    
-    report_html = reportgenerator(
-        date=date,
-        structured_data=structured_data,
-        model_prediction=model_prediction,
-        xai_result=xai_result,
-        unstructured_data=unstructured_data,
-        precomputed_strategies=minimal_strategies_str
-    )
-    
-    return report_html
-
-
-# ============================================
-# 기존 DB 테이블에 저장
-# ============================================
-
-def save_prediction_to_analytics(db: Session, target_date: date, prediction_result: dict) -> Analytics:
-    """
-    예측 결과를 analytics 테이블에 저장
-    
-    매핑:
-    - date: 예측 날짜
-    - overall_score: 예측 수익률 (predicted_return)
-    - features: XAI 피처 중요도 (JSON)
-    - variable_scores: 예측 가격 정보 (JSON)
-    """
+def save_analytics(db: Session, target_date: date, prediction_result: dict, df: pd.DataFrame) -> Analytics:
+    """analytics 테이블 저장"""
     pred = prediction_result.get("prediction", {})
-    xai = prediction_result.get("xai", [])
     
-    # 기존 데이터 확인 (중복 방지)
+    structured_features = {}
+    for col in df.columns:
+        if col not in ['brent_close', 'wti_close']:
+            structured_features[col] = df[col].tail(1).tolist()
+    
     existing = db.query(Analytics).filter(Analytics.date == target_date).first()
     if existing:
-        # 업데이트
         existing.overall_score = pred.get("pred_return", 0.0)
-        existing.features = xai
-        existing.variable_scores = {
-            "current_close": pred.get("today_close", 0.0),
-            "predicted_close": pred.get("predicted_next_close", 0.0)
-        }
+        existing.features = structured_features
         db.commit()
         db.refresh(existing)
         return existing
     
-    # 신규 생성
     db_analytics = Analytics(
         date=target_date,
         overall_score=pred.get("pred_return", 0.0),
-        features=xai,
-        variable_scores={
-            "current_close": pred.get("today_close", 0.0),
-            "predicted_close": pred.get("predicted_next_close", 0.0)
-        }
+        features=structured_features
     )
     
     db.add(db_analytics)
@@ -216,17 +102,83 @@ def save_prediction_to_analytics(db: Session, target_date: date, prediction_resu
     return db_analytics
 
 
-def save_action_to_strategies(db: Session, target_date: date, action_content: dict) -> list:
-    """
-    대응책을 recommended_strategies 테이블에 저장
-    여러 전략을 각각 별도 행으로 저장
-    """
-    strategies = action_content.get("strategies", [])
+def save_contents(db: Session, news_list: list) -> list:
+    """contents 테이블 저장"""
+    saved_contents = []
     
-    # 기존 데이터 삭제 (날짜 기준)
-    db.query(RecommendedStrategy).filter(
-        RecommendedStrategy.created_at >= target_date
-    ).delete()
+    for news in news_list:
+        existing = db.query(Content).filter(Content.url == news.get("url")).first()
+        if existing:
+            saved_contents.append(existing)
+            continue
+        
+        sentiment = news.get("sentiment") or {}
+        sentiment_score = sentiment.get("score", 0.0) if isinstance(sentiment, dict) else 0.0
+        
+        db_content = Content(
+            title=news.get("title", ""),
+            summary=news.get("summary", ""),
+            source_score=sentiment_score,
+            url=news.get("url", ""),
+            published_at=pd.to_datetime(news.get("published")) if news.get("published") else None
+        )
+        
+        db.add(db_content)
+        saved_contents.append(db_content)
+    
+    db.commit()
+    
+    for content in saved_contents:
+        db.refresh(content)
+    
+    return saved_contents
+
+
+def save_regions(db: Session, news_list: list):
+    """regions 테이블 업데이트"""
+    countries = set()
+    for news in news_list:
+        for country in news.get("relation_nation", []):
+            countries.add(country)
+    
+    for country in countries:
+        code = get_country_code(country)
+        existing = db.query(Region).filter(Region.name == country).first()
+        if not existing:
+            db_region = Region(
+                name=country,
+                code=code,
+                region_score=0.0
+            )
+            db.add(db_region)
+    
+    db.commit()
+
+
+def update_region_scores(db: Session, news_list: list):
+    """contents 저장 후 region_score 계산 및 업데이트"""
+    country_scores = {}
+    
+    for news in news_list:
+        sentiment = news.get("sentiment") or {}
+        sentiment_score = sentiment.get("score", 0.0) if isinstance(sentiment, dict) else 0.0
+        
+        for country in news.get("relation_nation", []):
+            if country not in country_scores:
+                country_scores[country] = []
+            country_scores[country].append(abs(float(sentiment_score)))
+    
+    for country, scores in country_scores.items():
+        region = db.query(Region).filter(Region.name == country).first()
+        if region and scores:
+            region.region_score = sum(scores) / len(scores)
+    
+    db.commit()
+
+
+def save_strategies(db: Session, action_content: dict) -> list:
+    """recommended_strategies 테이블 저장"""
+    strategies = action_content.get("strategies", [])
     
     saved_strategies = []
     
@@ -251,173 +203,146 @@ def save_action_to_strategies(db: Session, target_date: date, action_content: di
     return saved_strategies
 
 
-def save_report_to_reports(db: Session, target_date: date, report_html: str) -> Report:
-    """
-    일일 리포트를 reports 테이블에 저장
+def save_report(db: Session, target_date: date, report_html: str, content_ids: list) -> Report:
+    """reports 테이블 저장"""
+    # HTML body 내부만 추출
+    import re
+    body_match = re.search(r'<body[^>]*>(.*?)</body>', report_html, re.DOTALL | re.IGNORECASE)
+    body_content = body_match.group(1) if body_match else report_html
     
-    매핑:
-    - report_type: 'daily' 고정
-    - start_date: 리포트 날짜
-    - end_date: 리포트 날짜 (동일)
-    - html_content: AI 생성 HTML
-    """
-    # 기존 데이터 확인
     existing = db.query(Report).filter(
         Report.report_type == 'daily',
         Report.start_date == target_date
     ).first()
     
     if existing:
-        existing.html_content = report_html
+        existing.html_content = body_content
         db.commit()
         db.refresh(existing)
-        return existing
+        report = existing
+    else:
+        db_report = Report(
+            report_type='daily',
+            start_date=target_date,
+            end_date=target_date,
+            html_content=body_content
+        )
+        db.add(db_report)
+        db.commit()
+        db.refresh(db_report)
+        report = db_report
     
-    db_report = Report(
-        report_type='daily',
-        start_date=target_date,
-        end_date=target_date,
-        html_content=report_html
-    )
+    # reports_contents 연결
+    db.query(ReportContent).filter(ReportContent.report_id == report.id).delete()
     
-    db.add(db_report)
+    for content_id in content_ids:
+        db_rc = ReportContent(
+            report_id=report.id,
+            content_id=content_id
+        )
+        db.add(db_rc)
+    
     db.commit()
-    db.refresh(db_report)
     
-    return db_report
+    return report
 
 
-# ============================================
-# 전체 파이프라인 실행
-# ============================================
-
-def run_full_ai_pipeline_test(db: Session, date_str: str) -> dict:
+def run_full_pipeline(db: Session, target_datetime: datetime, json_path: str) -> dict:
     """
-    테스트용: 파일에서 뉴스 로드 후 AI 파이프라인 실행
-    
-    Args:
-        db: DB 세션
-        date_str: 실행 날짜 (YYYY-MM-DD)
-    
-    Returns:
-        {
-            "prediction": Analytics,
-            "action": RecommendedStrategy,
-            "report": Report
-        }
+    전체 AI 파이프라인 실행
+    크롤링된 JSON 파일에서 24시간 뉴스 사용
     """
-    target_date = datetime.strptime(date_str, "%Y-%m-%d").date()
-    
-    # 1. 파일에서 뉴스 로드 (테스트용)
-    news_data = load_news_from_file()
-    news_list = daily_news_data(news_data)
-    
-    # 2. 모델링 실행
-    modeling_result = run_daily_modeling(news_list, start_date=date_str)
-    
-    # 3. 정형 데이터 준비 (임시: 빈 DataFrame)
-    filtered_data = pd.DataFrame()
-    
-    # 4. 뉴스 압축
-    news_compact = build_compact_news_list(news_list, max_news=5)
-    
-    # 5. 대응책 생성
-    action_result = generate_action_plan(
-        date=date_str,
-        structured_data=filtered_data,
-        model_prediction=modeling_result["prediction"],
-        xai_result=modeling_result["xai"],
-        unstructured_data=news_compact
-    )
-    
-    # 6. 리포트 생성
-    report_html = generate_daily_report(
-        date=date_str,
-        structured_data=filtered_data,
-        model_prediction=modeling_result["prediction"],
-        xai_result=modeling_result["xai"],
-        unstructured_data=news_compact,
-        action_strategies=action_result
-    )
-    
-    # 7. DB 저장
-    db_analytics = save_prediction_to_analytics(db, target_date, modeling_result)
-    db_strategy = save_action_to_strategies(db, target_date, action_result)
-    db_report = save_report_to_reports(db, target_date, report_html)
-    
-    return {
-        "prediction": db_analytics,
-        "action": db_strategy,
-        "report": db_report
-    }
-
-
-def run_full_ai_pipeline_production(db: Session, target_datetime: datetime) -> dict:
-    """
-    실제 운영용: DB에서 뉴스 로드 후 AI 파이프라인 실행
-    전날 06시 ~ 당일 06시 데이터 사용
-    
-    Args:
-        db: DB 세션
-        target_datetime: 실행 시점 (예: 2025-11-19 06:00:00)
-    
-    Returns:
-        {
-            "prediction": Analytics,
-            "action": RecommendedStrategy,
-            "report": Report
-        }
-    """
-    # 전날 06시 ~ 당일 06시 범위 계산
-    end_time = target_datetime.replace(hour=6, minute=0, second=0, microsecond=0)
-    start_time = end_time - timedelta(days=1)
-    
     target_date = target_datetime.date()
     date_str = target_date.strftime("%Y-%m-%d")
     
-    # 1. DB에서 뉴스 로드
-    news_data = load_news_from_db(db, start_time, end_time)
+    # 1. JSON 파일에서 뉴스 로드
+    raw_news = load_news_from_json(json_path)
     
-    if not news_data:
-        raise ValueError(f"{start_time} ~ {end_time} 범위에 뉴스 데이터가 없습니다")
+    if not raw_news:
+        raise ValueError(f"{json_path} 파일에 뉴스 데이터가 없습니다")
     
-    news_list = daily_news_data(news_data)
+    # 2. 뉴스 처리 (임베딩이 이미 있으면 스킵)
+    if raw_news and "summary_embedding" in raw_news[0]:
+        news_list = raw_news
+    else:
+        news_list = daily_news_data(raw_news)
     
-    # 2. 모델링 실행
-    modeling_result = run_daily_modeling(news_list, start_date=date_str)
+    # 3. regions 저장
+    save_regions(db, news_list)
     
-    # 3. 정형 데이터 준비 (임시: 빈 DataFrame)
+    # 4. contents 저장
+    saved_contents = save_contents(db, news_list)
+    content_ids = [c.id for c in saved_contents]
+    
+    # 5. region_score 업데이트
+    update_region_scores(db, news_list)
+    
+    # 6. 모델링 실행
+    df = build_full_dataset(news=news_list)
+    if not isinstance(df.index, pd.DatetimeIndex):
+        df.index = pd.to_datetime(df.index)
+    df_filtered = df.tail(60) if len(df) > 60 else df
+    df_refined = unstructure_refine(df_filtered)
+    modeling_result = run_inference(news_list=news_list, df=df_refined)
+    
+    # 7. analytics 저장
+    db_analytics = save_analytics(db, target_date, modeling_result, df_filtered)
+    
+    # 8. 정형 데이터 준비 (임시)
     filtered_data = pd.DataFrame()
     
-    # 4. 뉴스 압축
+    # 9. 뉴스 압축
     news_compact = build_compact_news_list(news_list, max_news=5)
     
-    # 5. 대응책 생성
-    action_result = generate_action_plan(
-        date=date_str,
-        structured_data=filtered_data,
-        model_prediction=modeling_result["prediction"],
-        xai_result=modeling_result["xai"],
-        unstructured_data=news_compact
-    )
+    # 10. 대응책 생성
+    try:
+        action_result = actiongenerator(
+            date=date_str,
+            structured_data=filtered_data,
+            model_prediction=modeling_result["prediction"],
+            xai_result=modeling_result["xai"],
+            unstructured_data=news_compact
+        )
+        action_dict = json.loads(action_result) if action_result else {"strategies": []}
+    except Exception as e:
+        print(f"Warning: 대응책 생성 실패 - {e}")
+        action_dict = {"strategies": []}
     
-    # 6. 리포트 생성
-    report_html = generate_daily_report(
-        date=date_str,
-        structured_data=filtered_data,
-        model_prediction=modeling_result["prediction"],
-        xai_result=modeling_result["xai"],
-        unstructured_data=news_compact,
-        action_strategies=action_result
-    )
+    # 11. strategies 저장
+    db_strategies = save_strategies(db, action_dict)
     
-    # 7. DB 저장
-    db_analytics = save_prediction_to_analytics(db, target_date, modeling_result)
-    db_strategy = save_action_to_strategies(db, target_date, action_result)
-    db_report = save_report_to_reports(db, target_date, report_html)
+    # 12. 리포트 생성
+    try:
+        report_html = reportgenerator(
+            date=date_str,
+            structured_data=filtered_data,
+            model_prediction=modeling_result["prediction"],
+            xai_result=modeling_result["xai"],
+            unstructured_data=news_compact,
+            precomputed_strategies=json.dumps({
+                "strategies": [
+                    {
+                        "name": s["name"],
+                        "horizon": s["horizon"],
+                        "objective": s["objective"],
+                        "actions": s["actions"],
+                        "data_evidence": s["data_evidence"],
+                        "risk_note": s["risk_note"],
+                    }
+                    for s in action_dict.get("strategies", [])
+                ]
+            }, ensure_ascii=False)
+        )
+    except Exception as e:
+        print(f"Warning: 리포트 생성 실패 - {e}")
+        report_html = "<html><body><h1>Report Generation Failed</h1></body></html>"
+    
+    # 12. report 저장
+    db_report = save_report(db, target_date, report_html, content_ids)
     
     return {
-        "prediction": db_analytics,
-        "action": db_strategy,
-        "report": db_report
+        "analytics": db_analytics,
+        "strategies": db_strategies,
+        "report": db_report,
+        "contents": saved_contents
     }

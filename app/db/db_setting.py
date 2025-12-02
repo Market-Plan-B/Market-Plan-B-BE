@@ -38,8 +38,6 @@ class Region(Base):
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
-    contents = relationship("Content", back_populates="region", cascade="all, delete-orphan")
-
 
 # ----------------------------
 # CONTENTS (뉴스 데이터 저장)
@@ -48,7 +46,6 @@ class Content(Base):
     __tablename__ = "contents"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    region_id = Column(Integer, ForeignKey("regions.id", ondelete="SET NULL"))
     title = Column(String(500), nullable=False)  # 뉴스 제목
     summary = Column(Text)  # 뉴스 요약
     source_score = Column(Numeric(3, 2))  # 감정/신뢰도 점수
@@ -56,7 +53,6 @@ class Content(Base):
     published_at = Column(DateTime)  # 뉴스 발행 시간
     created_at = Column(DateTime, server_default=func.now())
 
-    region = relationship("Region", back_populates="contents")
     notifications = relationship("Notification", back_populates="content")
     report_links = relationship("ReportContent", back_populates="content", cascade="all, delete-orphan")
 
@@ -71,7 +67,6 @@ class Analytics(Base):
     date = Column(Date, nullable=False)
     overall_score = Column(Numeric(3, 2))  # 예측 수익률
     features = Column(JSON)  # XAI 피처 중요도
-    variable_scores = Column(JSON)  # 예측 가격 정보 {"current_close": 75.5, "predicted_close": 77.2}
     created_at = Column(DateTime, server_default=func.now())
 
 
@@ -186,6 +181,44 @@ class ReportContent(Base):
 
     report = relationship("Report", back_populates="contents")
     content = relationship("Content", back_populates="report_links")
+
+
+# ----------------------------
+# CONTENT-REGION RELATION (다대다)
+# ----------------------------
+class ContentRegion(Base):
+    __tablename__ = "contents_regions"
+
+    content_id = Column(Integer, ForeignKey("contents.id", ondelete="CASCADE"), primary_key=True)
+    region_id = Column(Integer, ForeignKey("regions.id", ondelete="CASCADE"), primary_key=True)
+    created_at = Column(DateTime, server_default=func.now())
+
+
+# ----------------------------
+# CRAWLING SOURCES
+# ----------------------------
+class CrawlingSource(Base):
+    __tablename__ = "crawling_sources"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    base_url = Column(String(500), nullable=False)
+    source_name = Column(String(500), nullable=False)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+# ----------------------------
+# CRAWLING CATEGORIES
+# ----------------------------
+class CrawlingCategory(Base):
+    __tablename__ = "crawling_categories"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    category = Column(String(200), nullable=False)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
 
 # ----------------------------

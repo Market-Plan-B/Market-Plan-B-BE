@@ -44,6 +44,7 @@ class Strategy(BaseModel):
     actions: List[str]            
     data_evidence: Dict[str, str] 
     risk_note: str | None = None
+    created_at: datetime
 
 class StrategiesResponse(BaseModel):
     strategies: List[Strategy]
