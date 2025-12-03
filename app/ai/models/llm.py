@@ -23,7 +23,7 @@ llm_json_format = ChatOpenAI(
 # html용으로 text로 뽑는 애
 llm_text_format = ChatOpenAI(
     model=os.getenv('OPENAI_MODEL', 'gpt-4o'),
-    temperature=float(os.getenv('TEMPERATURE', '0.0')),
+    temperature=float(os.getenv('TEMPERATURE', '0.2')),
     api_key=os.getenv('OPENAI_API_KEY'),
     model_kwargs={"response_format": {"type": "text"}}
 )
