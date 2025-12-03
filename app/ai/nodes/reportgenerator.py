@@ -40,7 +40,6 @@ def reportgenerator(
         role=reportgenerator_prompt["role"],
         rules=reportgenerator_prompt["rules"],
         output_schema=reportgenerator_prompt["output_schema"],
-        fewshot=reportgenerator_prompt["fewshot"],
 
         report_date=date,
         structured_data=structured_str,
@@ -49,15 +48,14 @@ def reportgenerator(
         xai_result=xai_str,
         precomputed_strategies=strategies_str
     )
-    print(final_prompt)
 
+    print(final_prompt)
 
     try:
         response = (template | llm_text_format).invoke({
             "role": reportgenerator_prompt["role"],
             "rules": reportgenerator_prompt["rules"],
             "output_schema": reportgenerator_prompt["output_schema"],
-            "fewshot": reportgenerator_prompt["fewshot"],
 
             "report_date": date,
             "structured_data": structured_str,
