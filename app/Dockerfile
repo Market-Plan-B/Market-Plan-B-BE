@@ -37,4 +37,6 @@ RUN pip install --no-cache-dir -r requirements.txt && \
 COPY . .
 RUN chmod +x /app/start.sh
 
+RUN python -m playwright install --with-deps chromium
+
 CMD ["/app/start.sh"]
