@@ -37,6 +37,8 @@ services:
       STABILITY_API_KEY: ${STABILITY_API_KEY}
       GEMINI_API_KEY: ${GEMINI_API_KEY}
       DEBUG: ${DEBUG}
+      PYTHONDONTWRITEBYTECODE: 1
+      PYTHONUNBUFFERED: 1
     ports:
       - "8000:8000"
     depends_on:
@@ -45,6 +47,8 @@ services:
     volumes:
       - ./app:/app
       - ./data:/app/data
+    # Playwright / Chromium / Selenium 이 메모리를 넉넉히 쓰도록
+    shm_size: "1gb"
 
 volumes:
   postgres_data:

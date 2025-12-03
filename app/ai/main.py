@@ -174,9 +174,6 @@ report = reportgenerator(
 )
 
 print(report)
-parsed_json = json.loads(report)
 
 with open("daily_report.html", "w", encoding="utf-8") as f:
     f.write(report)
-
-

@@ -1,3 +1,37 @@
+requests
+beautifulsoup4
+python-dateutil
+apscheduler
+fastapi
+uvicorn[standard]
+psycopg2-binary
+SQLAlchemy
+python-multipart
+pydantic[email]
+PyJWT
+python-dotenv
+
+# --- Crawl4AI + Playwright ---
+crawl4ai
+playwright
+lxml
+bs4
+
+selenium
+webdriver_manager
+feedparser
+pandas
+yfinance
+hdbscan
+torch
+captum
+transformers
+pymysql
+langchain
+langchain_core
+langchain_openai
+
+# AI requirements
 numpy==1.26.4
 pandas==2.3.3
 scipy==1.16.3
@@ -34,5 +68,3 @@ google-generativeai==0.8.5
 google-ai-generativelanguage==0.6.15
 google-api-python-client==2.187.0
 google-auth==2.43.0
-langchain
-langchain-openai
