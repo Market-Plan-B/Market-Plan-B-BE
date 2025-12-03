@@ -4,6 +4,7 @@ from app.routers import report_router
 from app.routers import dashboard_router
 import uvicorn
 from app.routers import analytics_router
+from app.routers import admin
 import os
 from dotenv import load_dotenv
 
