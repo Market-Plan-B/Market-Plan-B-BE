@@ -136,18 +136,23 @@ def save_contents(db: Session, news_list: list) -> list:
 
 def save_regions(db: Session, news_list: list):
     """regions 테이블 업데이트"""
-    countries = set()
+    countries = {}
     for news in news_list:
-        for country in news.get("relation_nation", []):
-            countries.add(country)
+        relation_nations = news.get("relation_nation", [])
+        if isinstance(relation_nations, list):
+            for item in relation_nations:
+                if isinstance(item, dict):
+                    name = item.get("name")
+                    code = item.get("code")
+                    if name:
+                        countries[name] = code
     
-    for country in countries:
-        code = get_country_code(country)
-        existing = db.query(Region).filter(Region.name == country).first()
+    for name, code in countries.items():
+        existing = db.query(Region).filter(Region.name == name).first()
         if not existing:
             db_region = Region(
-                name=country,
-                code=code,
+                name=name,
+                code=code or "XX",
                 region_score=0.0
             )
             db.add(db_region)
@@ -163,10 +168,15 @@ def update_region_scores(db: Session, news_list: list):
         sentiment = news.get("sentiment") or {}
         sentiment_score = sentiment.get("score", 0.0) if isinstance(sentiment, dict) else 0.0
         
-        for country in news.get("relation_nation", []):
-            if country not in country_scores:
-                country_scores[country] = []
-            country_scores[country].append(abs(float(sentiment_score)))
+        relation_nations = news.get("relation_nation", [])
+        if isinstance(relation_nations, list):
+            for item in relation_nations:
+                if isinstance(item, dict):
+                    name = item.get("name")
+                    if name:
+                        if name not in country_scores:
+                            country_scores[name] = []
+                        country_scores[name].append(abs(float(sentiment_score)))
     
     for country, scores in country_scores.items():
         region = db.query(Region).filter(Region.name == country).first()

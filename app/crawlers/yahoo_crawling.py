@@ -23,7 +23,7 @@ class YahooFinanceNewsScraperPlaywright:
 
         # KST 기준 최근 1시간 범위 계산
         now_kst = datetime.now(self.KST)
-        start_kst = now_kst - timedelta(hours=1)
+        start_kst = now_kst - timedelta(hours=6)
         
         result = start_kst <= kst_dt <= now_kst
 

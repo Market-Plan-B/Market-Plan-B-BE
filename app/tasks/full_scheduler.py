@@ -230,7 +230,7 @@ def main():
     # 매일 자정: 24시간 데이터로 전체 파이프라인
     scheduler.add_job(
         daily_job,
-        CronTrigger(hour=0, minute=5),
+        CronTrigger(hour=0, minute=20),
         id='daily_pipeline',
         max_instances=1,
         misfire_grace_time=3600,
@@ -238,8 +238,9 @@ def main():
     )
     
     logger.info("통합 스케줄러 시작")
-    logger.info("- 매 시간 정각: 크롤링 + contents 저장")
-    logger.info("- 매일 00:05: 전체 AI 파이프라인")
+    logger.info(f"현재 시간: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    logger.info("- 매 시간 0분: 크롤링 + contents 저장")
+    logger.info("- 매일 00:15: 전체 AI 파이프라인")
     
     try:
         scheduler.start()
