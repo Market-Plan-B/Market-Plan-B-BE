@@ -1,7 +1,12 @@
 import json
 import numpy as np
+import pandas as pd
+import yfinance as yf
 import uuid
+from datetime import datetime, timedelta
+from dateutil import parser
 from dotenv import load_dotenv
+from dateutil import parser
 from tqdm import tqdm
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.decomposition import TruncatedSVD
@@ -103,6 +108,82 @@ def build_unique_news(filtered_news, groups):
         result.append(rep_doc)
     return result
 
+# brent oil 가격
+
+def parse_date(raw_date: str):
+    return parser.parse(raw_date)
+
+def get_published_date(article: dict):
+    if "published" in article:
+        return article["published"]
+    if "published_date" in article:
+        return article["published_date"]
+    return None
+
+def get_brent_prices(event_date_str):
+    event_date = datetime.strptime(event_date_str, "%Y-%m-%d")
+
+    start = (event_date - timedelta(days=3)).strftime("%Y-%m-%d")
+    end   = (event_date + timedelta(days=3)).strftime("%Y-%m-%d")
+
+
+    df = yf.download("BZ=F", start=start, end=end)
+
+    if df.empty:
+        print("⚠ Yahoo Finance 데이터 없음")
+        return None
+
+    df.index = pd.to_datetime(df.index)
+
+    prev_day = event_date - timedelta(days=1)
+
+    def get_close(date):
+        if date in df.index:
+            return float(df.loc[date]["Close"])
+        else:
+            valid_days = df.index[df.index <= date]
+            if len(valid_days):
+                return float(df.loc[valid_days[-1]]["Close"])
+            return None
+
+    prev_close = get_close(prev_day)
+    event_close = get_close(event_date)
+
+    # 변동률 계산
+    if prev_close and event_close:
+        pct_change = ((event_close - prev_close) / prev_close) * 100
+    else:
+        pct_change = None
+
+    return {
+        "event_date": event_date_str,
+        "prev_close": prev_close,
+        "event_close": event_close,
+        "pct_change": pct_change
+    }
+
+def attach_brent_price_info(articles):
+    for article in articles:
+        raw_date = get_published_date(article)
+
+        if raw_date is None:
+            article["brent_price"] = None
+            continue
+
+        try:
+            event_dt = parse_date(raw_date)
+            event_date_str = event_dt.strftime("%Y-%m-%d")
+
+            brent_info = get_brent_prices(event_date_str)
+
+            article["brent_price"] = brent_info
+
+        except Exception as e:
+            article["brent_price"] = None
+            print(f"⚠ Brent 가격 조회 실패 ({article.get('title','')[:30]}): {e}")
+
+    return articles
+
 # summary 생성
 def create_client(api_key):
     client = OpenAI(api_key=api_key)
@@ -140,6 +221,26 @@ def analyze_article(article_data: dict, client):
             "relation_nation": []
         }
     content_sample = content[:3000] if len(content) > 3000 else content
+
+    raw_date = get_published_date(article_data)
+    event_dt = parse_date(raw_date)
+    event_date_str = event_dt.strftime("%Y-%m-%d")
+
+    brent_info = get_brent_prices(event_date_str)
+
+    if brent_info:
+        prev_close = brent_info.get("prev_close")
+        event_close = brent_info.get("event_close")
+
+        if prev_close and event_close:
+            daily_change_pct = ((event_close - prev_close) / prev_close) * 100
+        else:
+            daily_change_pct = None
+    else:
+        daily_change_pct = None
+
+    daily_change_pct = brent_info.get("pct_change") 
+
     prompt = f"""
 당신은 국제 Brent Oil 관련 뉴스를 분석하는 전문가입니다.
 아래 기사를 분석하여 반드시 JSON 형식으로만 출력하세요.
@@ -191,6 +292,18 @@ def analyze_article(article_data: dict, client):
     - 감정이 혼재된 경우, 긍/부정 요인을 종합하여 근사값을 산출해.
     - 만약 명확한 방향성이 없거나 긍·부정이 혼재된 경우, 0을 기준으로 근접한 쪽으로 판단해.
     - `explanation`에는 이유를 1~2문장으로 기술해.
+
+    전일 대비 Brent 가격 변화율 참고치
+    전일 대비 변화율: {daily_change_pct}%
+
+    - 변화율이 양수면 감성 점수를 조금(+0.1~+0.3 범위) 상향 보정
+    - 변화율이 음수면 감성 점수를 조금(-0.1~-0.3 범위) 하향 보정
+    - 변화율의 절대값이 클수록 조정폭도 커진다.
+
+    최종 점수는 하나만 출력해야 한다.
+    - 기사 기반 점수와 가격 변동률 조정값을 합산하여 하나의 최종 score를 출력하라.
+    - score는 반드시 -1.0~+1.0 사이의 실수여야 한다.
+
 3. 카테고리 (category)
     - 브렌트유 산업 관련 뉴스 카테고리 리스트에서 정확히 1개만 선택해.
     - 반드시 카테고리 리스트에 있는 카테고리만 선택해야해.
@@ -253,7 +366,8 @@ def analyze_article(article_data: dict, client):
   "relation_nation": [
     {{"name": "Country Name", "code": "XXX"}},
     {{"name": "Country Name 2", "code": "YYY"}}
-  ]
+  ],
+  "daily_change_pct": 0.0
 }}
 """
     try:
@@ -280,7 +394,8 @@ def analyze_article(article_data: dict, client):
             "summary": analysis.get("summary", ""),
             "sentiment": analysis.get("sentiment", {"explanation": "", "score": 0.5}),
             "trust": analysis.get("trust", {"explanation": "", "score": 0.5, "reliable": True}),
-            "relation_nation": analysis.get("relation_nation", [])
+            "relation_nation": analysis.get("relation_nation", []),
+            "daily_change_pct": daily_change_pct
         }
         if not result["summary"] or result["summary"] == "":
             result["summary"] = "요약 정보 없음"

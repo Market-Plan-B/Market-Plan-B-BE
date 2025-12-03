@@ -4,7 +4,7 @@ from app.ai.services.pipeline_inference import run_inference
 from app.ai.services.unstructured_summary import daily_news_data
 
 import pandas as pd
-from datetype import datetype
+# from datetype import datetype
 import json
 
 def db_load():
