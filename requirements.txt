@@ -1,6 +1,5 @@
 requests
 beautifulsoup4
-redis
 python-dateutil
 apscheduler
 fastapi
@@ -9,6 +8,9 @@ psycopg2-binary
 SQLAlchemy
 python-multipart
 requests
+pydantic[email]
+PyJWT
+python-dotenv
 # crawl4ai playwright
 # playwright install chromium
 # pip install -U crawl4ai playwright bs4 lxml
@@ -16,3 +18,14 @@ requests
 # crawl4ai-setup
 selenium
 webdriver_manager
+feedparser
+pandas
+yfinance
+hdbscan
+torch
+captum
+transformers
+pymysql
+langchain
+langchain_core
+langchain_openai

@@ -1,10 +1,6 @@
 """
-Google 뉴스 크롤러
+Google 뉴스 크롤러 (최근 1시간)
 ---------------------------------------
-수집 범위:
-  - 한국시간(KST): 전날 오전 6시 ~ 오늘 오전 6시
-  - UTC 변환 시: 전전날 21:00 ~ 전날 21:00
-
 수집 항목:
   - keyword, title, url, content, published_date
 """
@@ -12,25 +8,41 @@ Google 뉴스 크롤러
 import feedparser
 import requests
 from bs4 import BeautifulSoup
-import json
-import redis
 from datetime import datetime, timedelta, timezone
 import time
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from dateutil import parser
-
-# ----------------------------
-# Redis 설정
-# ----------------------------
-r = redis.Redis(host='localhost', port=6379, db=0, decode_responses=True)
-REDIS_KEY = "google_news_urls"
+import re
 
 # ==== 설정 ====
 HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
 KST = timezone(timedelta(hours=9))
 UTC = timezone.utc
-DEBUG_MODE = False
+
+# 최근 1시간 내 범위 계산 
+def is_within_last_hour(pub_date: datetime):
+    """KST 기준 최근 1시간 기사인지 확인"""
+    if not isinstance(pub_date, datetime):
+        return False
+
+    # 날짜를 UTC로 정규화
+    if pub_date.tzinfo is None:
+        pub_date_utc = pub_date.replace(tzinfo=UTC)
+    else:
+        pub_date_utc = pub_date.astimezone(UTC)
+    
+    # KST 기준 최근 1시간 범위 계산
+    now_kst = datetime.now(KST)
+    start_kst = now_kst - timedelta(hours=6)
+    
+    start_utc = start_kst.astimezone(UTC)
+    end_utc = now_kst.astimezone(UTC)
+    
+    result = start_utc <= pub_date_utc <= end_utc
+    print(f"[FILTER] 결과: {result}")
+    
+    return result
 
 
 # Selenium 설정
@@ -40,162 +52,185 @@ def get_driver():
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
-    options.add_argument("--window-size=1920,1080")
     return webdriver.Chrome(options=options)
-
 
 driver = get_driver()
 
-
-# Google redirect → 실제 언론사 URL 추출
+# Google redirect → 실제 URL
 def extract_real_url(google_url):
     try:
         driver.get(google_url)
-        time.sleep(2)
+        time.sleep(1)
         final_url = driver.current_url
-        if 'news.google.com' not in final_url and 'gstatic.com' not in final_url:
-            print(f" 실제 URL: {final_url[:100]}")
+
+        if 'news.google.com' not in final_url:
             return final_url
-        else:
-            print(" 리디렉션 실패 (Google 내부 링크)")
-            return None
-    except Exception as e:
-        print(f" URL 추출 오류: {e}")
+        
+        return None
+    except:
         return None
 
 
-#  본문 추출
-def extract_content(url):
+# 기사 본문 및 발행시간 추출
+def extract_content_and_date(url):
     try:
         res = requests.get(url, headers=HEADERS, timeout=10)
         soup = BeautifulSoup(res.text, "html.parser")
 
-        if len(soup.get_text(strip=True)) < 500:
+        # 콘텐츠 추출을 위한 Selenium 사용 
+        if len(soup.get_text(strip=True)) < 300:
+            try:
+                driver.get(url)
+                time.sleep(2)
+                soup = BeautifulSoup(driver.page_source, "html.parser")
+            except:
+                pass
+
+        # 실제 발행시간 추출
+        actual_date = None
+        
+        # 1. time 태그의 datetime 속성
+        time_tag = soup.select_one("time[datetime]")
+        if time_tag and time_tag.get("datetime"):
+            try:
+                actual_date = parser.parse(time_tag.get("datetime"))
+            except:
+                pass
+        
+        # 2. meta 태그에서 시간 추출
+        if not actual_date:
+            meta_tags = soup.find_all("meta")
+            for meta in meta_tags:
+                content = meta.get("content", "")
+                if "published" in meta.get("property", "").lower() or "date" in meta.get("name", "").lower():
+                    try:
+                        actual_date = parser.parse(content)
+                        break
+                    except:
+                        continue
+        
+        # 3. 본문에서 "Published" 패턴 찾기
+        if not actual_date:
+            import re
+            text = soup.get_text()
+            patterns = [
+                r"Published\s+(\d{4}\.\d{1,2}\.\d{1,2}\.\s+\d{1,2}:\d{2})",
+                r"Published\s+(\d{4}-\d{1,2}-\d{1,2}\s+\d{1,2}:\d{2})",
+                r"(\d{1,2}/\d{1,2}/\d{4}\s+\d{1,2}:\d{2}\s*[AP]M)",
+                r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})",
+            ]
+            for pattern in patterns:
+                match = re.search(pattern, text)
+                if match:
+                    try:
+                        date_str = match.group(1)
+                        if "." in date_str:
+                            date_str = date_str.replace(".", "-")
+                        actual_date = parser.parse(date_str)
+                        break
+                    except:
+                        continue
+        
+        # 4. Selenium으로 다시 시도 (시간 정보가 없을 때)
+        if not actual_date and len(soup.get_text(strip=True)) < 300:
             try:
                 driver.get(url)
                 time.sleep(3)
                 soup = BeautifulSoup(driver.page_source, "html.parser")
-            except Exception as e:
-                print(f" Selenium 재시도 실패: {e}")
+                
+                # 다시 시간 추출 시도
+                time_tag = soup.select_one("time[datetime]")
+                if time_tag and time_tag.get("datetime"):
+                    try:
+                        actual_date = parser.parse(time_tag.get("datetime"))
+                    except:
+                        pass
+            except:
+                pass
 
         for tag in soup.find_all(['script', 'style', 'nav', 'header', 'footer', 'aside']):
             tag.decompose()
 
         selectors = [
             "article",
-            '[id*="article"]',
-            '[class*="article"]',
-            '[class*="content"]',
-            '[class*="body"]',
-            '[class*="post"]',
-            '[class*="entry"]',
-            'section',
+            '[class*=\"article\"]',
+            '[class*=\"content\"]',
+            '[class*=\"body\"]',
+            "[itemprop='articleBody']",
         ]
 
         text = ""
         for sel in selectors:
             section = soup.select_one(sel)
             if section:
-                candidate = section.get_text(separator="\n", strip=True)
+                candidate = section.get_text(" ", strip=True)
                 if len(candidate) > len(text):
                     text = candidate
 
-        if len(text) < 50:
-            paragraphs = [
-                p.get_text(strip=True)
-                for p in soup.find_all("p")
-                if len(p.get_text(strip=True)) > 30
-            ]
-            text = "\n".join(paragraphs)
+        # fallback
+        if len(text) < 100:
+            ps = soup.find_all("p")
+            text = "\n".join(p.get_text(strip=True) for p in ps if len(p.get_text(strip=True)) > 30)
 
-        if len(text) > 50:
-            print(f"   ✓ 본문 추출 완료 ({len(text)}자)")
-            return text
-        else:
-            print("   ⚠️ 본문 부족하거나 없음")
-            return None
+        content = text if len(text) > 100 else None
+        return content, actual_date
 
-    except Exception as e:
-        print(f"   ⚠️ 본문 추출 오류: {e}")
-        return None
+    except:
+        return None, None
 
 
-# UTC 범위 필터 (KST 전날 6시 ~ 당일 6시 = UTC 전전날 21시 ~ 전낡 21시)
-def is_within_kst_day(pub_date):
-    if not isinstance(pub_date, datetime):
-        return False
-
-    pub_date = pub_date.astimezone(UTC)
-    now_kst = datetime.now(KST)
-    
-    # 한국시간 기준 당일 06:00
-    if now_kst.hour >= 6:
-        end_kst = now_kst.replace(hour=6, minute=0, second=0, microsecond=0)
-    else:
-        end_kst = (now_kst - timedelta(days=1)).replace(hour=6, minute=0, second=0, microsecond=0)
-    
-    start_kst = end_kst - timedelta(days=1)  # 전날 06:00
-    
-    # KST를 UTC로 변환
-    end_utc = end_kst.astimezone(UTC)    # 전낡 21:00 UTC
-    start_utc = start_kst.astimezone(UTC)  # 전전낡 21:00 UTC
-
-    if DEBUG_MODE:
-        print(f"   UTC Range: {start_utc.isoformat()} ~ {end_utc.isoformat()}")
-        print(f"   Article Time (UTC): {pub_date.isoformat()}")
-
-    return start_utc <= pub_date < end_utc
-
-
-#  RSS 크롤러
-def crawl_google_news(keyword):
+# 하나의 키워드에 대한 크롤링
+def crawl_google_news(keyword, seen_urls):
     encoded = requests.utils.quote(keyword)
     feed_url = f"https://news.google.com/rss/search?q={encoded}&hl=en&gl=US&ceid=US:en"
 
-    print(f"\n{'='*70}")
-    print(f"🔍 키워드: {keyword}")
-    print(f"{'='*70}")
-
     feed = feedparser.parse(feed_url)
-    total_articles = len(feed.entries)
-    print(f"   ✓ {total_articles}개 기사 발견")
-
     results = []
-    success_count = 0
+    
+    print(f"[RSS] {len(feed.entries)}개 엔트리 발견")
 
-    for i, entry in enumerate(feed.entries, 1):
-        print(f"\n[{i}/{total_articles}] ▶ {entry.title[:60]}...")
-
-        # 먼저 날짜 확인
+    for entry in feed.entries:
         raw_date = entry.get("published", "")
-        parsed_date = None
         try:
-            if raw_date:
-                parsed_date = parser.parse(raw_date)
-        except Exception as e:
-            print(f" 날짜 파싱 오류: {e}")
+            pub_date = parser.parse(raw_date)
+        except:
             continue
 
-        if not parsed_date or not is_within_kst_day(parsed_date):
-            print(" 기사 시간대 범위 외 - 크롤링 스킵")
+        # 최근 1시간 이내인지 먼저 확인
+        if not is_within_last_hour(pub_date):
             continue
 
-        # 시간대 범위에 맞으면 본문 크롤링 시작
         real_url = extract_real_url(entry.link)
         if not real_url:
             continue
-            
-        # Redis 중복 체크
-        if r.sismember(REDIS_KEY, real_url):
-            if DEBUG_MODE:
-                print(f"  중복 URL 스킵: {entry.title[:50]}...")
-            continue
 
-        content = extract_content(real_url)
+        if real_url in seen_urls:
+            print(f"[DUPLICATE] 중복 URL 스킵: {real_url}")
+            continue
+        seen_urls.add(real_url)
+        print(f"[NEW URL] 새로운 URL 추가: {real_url}")
+
+        content, actual_date = extract_content_and_date(real_url)
         if not content:
             continue
 
-        published_utc = parsed_date.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S")
+        # 실제 발행시간이 있으면 사용, 없으면 RSS 시간 사용
+        final_date = actual_date if actual_date else pub_date
+        
+        # 최종 시간으로 1시간 필터링 재확인
+        if not is_within_last_hour(final_date):
+            print(f"필터링 제외: 1시간 범위 밖")
+            continue
+            
+        # UTC로 정규화 후 문자열 변환
+        if final_date.tzinfo is None:
+            final_date_utc = final_date.replace(tzinfo=UTC)
+        else:
+            final_date_utc = final_date.astimezone(UTC)
+        published_utc = final_date_utc.strftime("%Y-%m-%d %H:%M:%S")
+        
+        print(f"UTC 변환: {published_utc}")
+        print(f"필터링 통과: 수집 대상")
 
         results.append({
             "keyword": keyword,
@@ -204,27 +239,14 @@ def crawl_google_news(keyword):
             "content": content,
             "published_date": published_utc
         })
-        
-        # Redis에 URL 저장 (24시간 만료)
-        r.sadd(REDIS_KEY, real_url)
-        r.expire(REDIS_KEY, 86400)  # 24시간
-        
-        success_count += 1
-        print(f"    저장 완료 ({success_count}/{total_articles})")
 
-    print(f"\n 키워드 '{keyword}' 결과 요약: {success_count}/{total_articles}개 저장")
     return results
 
 
 def get_latest_google_news():
-    """최신 Google News 수집"""
-    print(f"\n{'='*50}")
-    print("🔍 Google News 최신 24시간 뉴스 수집 시작")
-    print(f"{'='*50}")
     
     keywords = [
-
-    # Oil & Refining Market
+       # Oil & Refining Market
     "crude oil market outlook OR refining industry trends",
     "oil price forecast OR Brent oil OR Dubai oil OR WTI price trends",
     "OPEC production OR OPEC+ cuts OR global oil supply",
@@ -254,33 +276,32 @@ def get_latest_google_news():
     "global inflation OR economic recession OR energy demand decline",
     "currency volatility OR petrodollar OR oil trade currency",
     "oil demand forecast OR business cycle OR economic recovery",
-]
+    ]
 
+    seen_urls = set()  # 전체 키워드에서 공유
     all_results = []
-    for kw in keywords:
-        data = crawl_google_news(kw)
-        all_results.extend(data)
 
-    print(f"\n 수집 결과:")
-    print(f"  ▶ 총 {len(all_results)}개 기사 수집 완료")
-    
+    for i, kw in enumerate(keywords, 1):
+        print(f"\n[KEYWORD {i}/{len(keywords)}] {kw}")
+        print(f"[SEEN_URLS] 현재 {len(seen_urls)}개 URL 저장됨")
+        
+        keyword_results = crawl_google_news(kw, seen_urls)
+        all_results.extend(keyword_results)
+        
+        print(f"[KEYWORD RESULT] {len(keyword_results)}개 기사 수집")
+        print(f"[TOTAL SEEN] 누적 {len(seen_urls)}개 URL")
+
+    print(f"\n⏱ 최근 1시간 기사 수집 완료: {len(all_results)}개")
     return all_results
+
 
 if __name__ == "__main__":
     try:
-        news_data = get_latest_google_news()
-        
-        if news_data:
-            print(f"\n 추출된 데이터:")
-            print("="*80)
-            for i, article in enumerate(news_data, 1):
-                print(f"\n[{i}] {article['title']}")
-                print(f"URL: {article['url']}")
-                print(f"날짜: {article['published_date']}")
-                print(f"본문: {article['content'][:200]}..." if len(article['content']) > 200 else f"본문: {article['content']}")
-                print("-" * 80)
-        else:
-            print("\n⚠️ 수집된 기사가 없습니다.")
-    
+        news = get_latest_google_news()
+        for i, a in enumerate(news, 1):
+            print(f"\n[{i}] {a['title']}")
+            print(a["url"])
+            print(a["published_date"])
+            print(a["content"][:200], "...\n")
     finally:
         driver.quit()
