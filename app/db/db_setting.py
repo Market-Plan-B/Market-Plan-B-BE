@@ -1,11 +1,14 @@
 from sqlalchemy import (
     create_engine, Column, Integer, String, Text, Boolean, Date,
-    DateTime, Numeric, JSON, ForeignKey, func, Enum
+    DateTime, Numeric, JSON, ForeignKey, func
 )
 from sqlalchemy.orm import declarative_base, relationship
 
-DATABASE_URL = "postgresql+psycopg2://postgres:postgres@localhost:5433/market-plan-b"
-
+# DATABASE_URL = "postgresql+psycopg2://postgres:postgres@localhost:5433/market-plan-b"
+DATABASE_URL = (
+    "postgresql+psycopg2://postgres:Skala25a!23$"
+    "@postgres-1-postgresql.postgres:5432/market-plan-b"
+)
 Base = declarative_base()
 
 # ----------------------------
