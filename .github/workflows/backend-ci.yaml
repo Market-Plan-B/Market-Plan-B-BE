@@ -10,7 +10,7 @@ jobs:
 
     env:
       HARBOR_REGISTRY: amdp-registry.skala-ai.com
-      HARBOR_PROJECT: skala-practice
+      HARBOR_PROJECT: skala25a
       IMAGE_NAME: oil-backend
 
     steps:
