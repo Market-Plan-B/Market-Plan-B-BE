@@ -42,8 +42,8 @@ jobs:
       - name: Build & Push Backend Image
         uses: docker/build-push-action@v6
         with:
-          context: ./app
-          file: ./app/Dockerfile
+          context: .
+          file: ./Dockerfile
           push: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
