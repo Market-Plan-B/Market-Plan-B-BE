@@ -8,6 +8,7 @@ psycopg2-binary
 SQLAlchemy
 python-multipart
 python-dotenv
+datetype
 
 # --- Crawl4AI + Playwright ---
 crawl4ai
@@ -39,4 +40,4 @@ umap-learn
 tensorflow-cpu
 transformers
 openai
-google-generativeai
+google-genai

@@ -1,101 +1,101 @@
 {
   "prediction": {
-    "pred_return": -0.029733914881944656,
-    "today_close": 62.54999923706055,
-    "predicted_next_close": 60.690142883880085
+    "pred_return": -0.029977213591337204,
+    "today_close": 62.52000045776367,
+    "predicted_next_close": 60.64582505031079
   },
   "xai": [
     {
       "feature": "brent_wti_spread",
-      "importance": 3.6734149034600705e-05
+      "importance": 3.674514664453454e-05
     },
     {
       "feature": "brent_ret_5d",
-      "importance": 0.0014366265386343002
+      "importance": 0.0014466153224930167
     },
     {
       "feature": "brent_ma_5",
-      "importance": 4.013017678516917e-05
+      "importance": 4.0050814277492464e-05
     },
     {
       "feature": "brent_ma_20",
-      "importance": 4.7301997255999595e-05
+      "importance": 4.7235003876267e-05
     },
     {
       "feature": "brent_ma_60",
-      "importance": 5.859568773303181e-05
+      "importance": 5.859702287125401e-05
     },
     {
       "feature": "wti_ma_5",
-      "importance": 9.94433939922601e-05
+      "importance": 9.931690874509513e-05
     },
     {
       "feature": "wti_ma_20",
-      "importance": 9.601530473446473e-05
+      "importance": 9.588100510882214e-05
     },
     {
       "feature": "wti_ma_60",
-      "importance": 4.4104308472014964e-05
+      "importance": 4.4122181861894205e-05
     },
     {
       "feature": "brent_vol_5d",
-      "importance": 0.00011574771633604541
+      "importance": 0.00011534076475072652
     },
     {
       "feature": "wti_vol_5d",
-      "importance": 3.865604958264157e-05
+      "importance": 3.8704707549186423e-05
     },
     {
       "feature": "high_low_range",
-      "importance": 0.00016950364806689322
+      "importance": 0.00017060473328456283
     },
     {
       "feature": "brent_news_impact_1",
-      "importance": 0.0005853860056959093
+      "importance": 0.0005856153438799083
     },
     {
       "feature": "brent_news_impact_2",
-      "importance": 0.0006480941665358841
+      "importance": 0.0006482612225227058
     },
     {
       "feature": "brent_news_impact_3",
-      "importance": 0.0002553523809183389
+      "importance": 0.0002551307843532413
     },
     {
       "feature": "brent_news_impact_4",
-      "importance": 0.0006537766312249005
+      "importance": 0.0006532439147122204
     },
     {
       "feature": "eia_news_impact_1",
-      "importance": 0.00016102215158753097
+      "importance": 0.00016099988715723157
     },
     {
       "feature": "eia_news_impact_2",
-      "importance": 0.00030478983535431325
+      "importance": 0.0003045019111596048
     },
     {
       "feature": "eia_news_impact_3",
-      "importance": 6.880881846882403e-05
+      "importance": 6.878441490698606e-05
     },
     {
       "feature": "eia_news_impact_4",
-      "importance": 2.0510855392785743e-05
+      "importance": 2.0556244635372423e-05
     },
     {
       "feature": "eia_news_impact_5",
-      "importance": 0.00018292406457476318
+      "importance": 0.00018295149493496865
     },
     {
       "feature": "cot_news_impact_1",
-      "importance": 6.682237290078774e-05
+      "importance": 6.676309567410499e-05
     },
     {
       "feature": "cot_news_impact_2",
-      "importance": 0.00023289877572096884
+      "importance": 0.00023282213078346103
     },
     {
       "feature": "cot_news_impact_3",
-      "importance": 6.318200030364096e-05
+      "importance": 6.323211709968746e-05
     }
   ]
 }

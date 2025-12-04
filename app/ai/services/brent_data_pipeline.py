@@ -90,8 +90,6 @@ def build_full_dataset(
     # -----------------------------------------
     df = make_brent_wti_features(start=start, end=end, target_horizon=target_horizon)
     print(df.head())
-    if not isinstance(df.index, pd.DatetimeIndex):
-        df.index = pd.to_datetime(df.index)
     df["date"] = df.index.date   # merge 편하게 date 컬럼 추가
 
     # -----------------------------------------
@@ -109,15 +107,7 @@ def build_full_dataset(
 
     # 날짜 변환
     news_df["date"] = pd.to_datetime(news_df["published"]).dt.date
-    
-    # 임베딩이 없는 경우 빈 클러스터 반환
-    if "summary_embedding" not in news_df.columns or news_df.empty:
-        # 빈 클러스터 데이터 생성
-        empty_clusters = pd.DataFrame(0, index=df.index, columns=[f"cluster_{i}" for i in range(max_cluster)])
-        df_final = pd.concat([df, empty_clusters], axis=1)
-        df_final = df_final.drop(columns=["date"])
-        return df_final
-    
+
     # 임베딩 추출
     embeddings = np.array(news_df["summary_embedding"].tolist())
 
@@ -164,6 +154,6 @@ def build_full_dataset(
     # -----------------------------------------
     # 8. 필요 없는 raw 컬럼 제거
     # -----------------------------------------
-    df_final = df_final.drop(columns=["date"])
-
+    # df_final = df_final.drop(columns=["date"])
+    
     return df_final
