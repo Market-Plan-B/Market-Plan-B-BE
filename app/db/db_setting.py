@@ -1,6 +1,6 @@
 from sqlalchemy import (
     create_engine, Column, Integer, String, Text, Boolean, Date,
-    DateTime, Numeric, JSON, ForeignKey, func
+    DateTime, Numeric, JSON, ForeignKey, func, Enum
 )
 from sqlalchemy.orm import declarative_base, relationship
 
