@@ -170,6 +170,7 @@ class Report(Base):
     start_date = Column(Date, nullable=False)  # 리포트 날짜
     end_date = Column(Date, nullable=False)  # 리포트 날짜 (start_date와 동일)
     html_content = Column(Text, nullable=False)  # AI 생성 HTML 리포트
+    images = Column(JSON, nullable=True)  # 리포트 이미지 데이터
     created_at = Column(DateTime, server_default=func.now())
 
     contents = relationship("ReportContent", back_populates="report", cascade="all, delete-orphan")
