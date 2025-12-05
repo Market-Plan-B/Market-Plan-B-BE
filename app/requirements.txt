@@ -21,9 +21,7 @@ feedparser
 pandas
 yfinance
 hdbscan
-torch --index-url https://download.pytorch.org/whl/cpu
 captum
-transformers
 pymysql
 langchain
 langchain_core

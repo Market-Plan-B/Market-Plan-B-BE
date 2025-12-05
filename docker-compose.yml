@@ -20,7 +20,7 @@ services:
 
   backend:
     build:
-      context: ./app
+      context: .
       dockerfile: Dockerfile
     container_name: market-plan-b-backend
     environment:

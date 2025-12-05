@@ -12,12 +12,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
     && rm -rf /var/lib/apt/lists/*
 
-COPY app/requirements.txt .
+COPY app/requirements.txt ./requirements.txt
 
 # 빌드 도구 설치 및 Python 패키지 설치
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libpq-dev \
+    && pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu \
     && pip install --no-cache-dir -r requirements.txt \
     && apt-get purge -y --auto-remove build-essential libpq-dev \
     && apt-get clean \
@@ -41,7 +42,6 @@ RUN find /usr/local/lib/python3.11/site-packages -type d -name "tests" -exec rm 
     && rm -rf /root/.cache /tmp/*
 
 COPY app/ ./app/
-COPY app/start.sh .
-RUN chmod +x /app/start.sh
+RUN chmod +x /app/app/start.sh
 
-CMD ["/app/start.sh"]
+CMD ["/app/app/start.sh"]

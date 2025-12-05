@@ -1,69 +1,116 @@
-from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
+import requests
+import json
 from bs4 import BeautifulSoup
 import pandas as pd
 from datetime import datetime, timezone, timedelta
-import json
 import time
+from urllib.parse import urljoin
 
 # 메모리 기반 중복 제거
 seen_urls = set()
 
-class YahooFinanceNewsScraperPlaywright:
+class YahooFinanceNewsScraper:
     def __init__(self):
         self.base_url = "https://finance.yahoo.com"
-        self.news_url = "https://finance.yahoo.com/news/"
         self.KST = timezone(timedelta(hours=9))
         self.UTC = timezone.utc
+        
+        # User-Agent 설정
+        self.headers = {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Connection': 'keep-alive',
+            'Referer': 'https://finance.yahoo.com/',
+        }
+        
+        self.session = requests.Session()
+        self.session.headers.update(self.headers)
 
-    # 최근 1시간 필터링 (한국시간 기준)
     def is_within_last_hour(self, kst_dt):
         """KST 기준 최근 1시간인지 판단"""
         if not isinstance(kst_dt, datetime):
             return False
 
-        # KST 기준 최근 1시간 범위 계산
         now_kst = datetime.now(self.KST)
-        start_kst = now_kst - timedelta(hours=6)
+        start_kst = now_kst - timedelta(hours=1)
         
         result = start_kst <= kst_dt <= now_kst
-
-        print(f"[YAHOO FILTER] 결과: {result}")
+        
+        print(f"[FILTER]")
+        print(f"  기사: {kst_dt.strftime('%Y-%m-%d %H:%M:%S')} KST")
+        print(f"  현재: {now_kst.strftime('%Y-%m-%d %H:%M:%S')} KST")
+        print(f"  범위: {start_kst.strftime('%H:%M')} ~ {now_kst.strftime('%H:%M')} KST")
+        print(f"  결과: {'✅ 통과' if result else '❌ 제외'}")
         
         return result
-    
-    # 링크 스크롤 수집
-    def scroll_and_collect_links(self, page, scroll_count=20, scroll_pause=1.2):
-        print(f"Yahoo Finance 뉴스 페이지 접속 중...")
-        page.goto(self.news_url, wait_until='domcontentloaded')
-        time.sleep(2)
+
+
+    def scrape_news_pages(self):
+        """Yahoo Finance 뉴스 페이지에서 직접 스크래핑"""
+        print("Yahoo Finance 원유 관련 뉴스 페이지 스크래핑 중...\n")
         news_links = set()
-        print(f"페이지 스크롤 시작...")
-        for i in range(scroll_count):
-            links = page.query_selector_all('a[href*="/news/"]')
-            for link in links:
-                try:
-                    href = link.get_attribute('href')
-                    if href and '/news/' in href and '.html' in href:
-                        if href.startswith('/'):
-                            full_url = f"https://finance.yahoo.com{href}"
-                        else:
-                            full_url = href
-                        clean_url = full_url.split('?')[0]
-                        news_links.add(clean_url)
-                except:
+        
+        news_pages = [
+            'https://finance.yahoo.com/sector/energy/',
+            'https://finance.yahoo.com/commodities',
+            'https://finance.yahoo.com/topic/economic-news/',
+            'https://finance.yahoo.com/topic/stock-market-news/',
+            'https://finance.yahoo.com/news/',
+            'https://finance.yahoo.com/topic/latest-news/',
+            "https://finance.yahoo.com/quote/CL=F",
+            "https://finance.yahoo.com/quote/BZ=F",
+            "https://finance.yahoo.com/quote/NG=F",
+            "https://finance.yahoo.com/quote/HO=F",
+            "https://finance.yahoo.com/quote/RB=F",
+            "https://finance.yahoo.com/industry/oil-gas/"
+        ]
+        
+        for page_url in news_pages:
+            try:
+                print(f"📄 페이지: {page_url}")
+                response = self.session.get(page_url, timeout=15)
+                
+                if response.status_code != 200:
+                    print(f"   ❌ 상태 코드: {response.status_code}\n")
                     continue
-            print(f"  스크롤 {i+1}/{scroll_count}: {len(news_links)}개")
-            page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-            time.sleep(scroll_pause)
+                
+                soup = BeautifulSoup(response.content, 'html.parser')
+                
+                for link in soup.find_all('a', href=True):
+                    href = link['href']
+                    
+                    if '/news/' in href:
+                        if href.startswith('/'):
+                            full_url = urljoin(self.base_url, href)
+                        elif href.startswith('http'):
+                            full_url = href
+                        else:
+                            continue
+                        
+                        clean_url = full_url.split('?')[0]
+
+                        # ✔ URL 유효성 검사 제거
+                        news_links.add(clean_url)
+                
+                print(f"   ✓ 수집: {len(news_links)}개\n")
+                time.sleep(1)
+                
+            except Exception as e:
+                print(f"   ❌ 오류: {e}\n")
+                continue
+        
         return list(news_links)
 
 
-    # 기사 파싱
-    def parse_article(self, page, url):
+    def parse_article(self, url):
+        """기사 파싱"""
         try:
-            page.goto(url, wait_until='domcontentloaded')
-            time.sleep(0.7)
-            soup = BeautifulSoup(page.content(), 'html.parser')
+            response = self.session.get(url, timeout=15)
+            response.raise_for_status()
+            
+            soup = BeautifulSoup(response.content, 'html.parser')
 
             article = {
                 "url": url,
@@ -72,131 +119,147 @@ class YahooFinanceNewsScraperPlaywright:
                 "published_date": None 
             }
 
-            # 제목 (우선순위별 추출)
             title = None
             
-            # 1. meta og:title 우선 
-            meta_title = soup.select_one("meta[property='og:title']")
+            meta_title = soup.find("meta", property="og:title")
             if meta_title and meta_title.get("content"):
                 title = meta_title.get("content")
             
-            # 2. h1 태그들 중 "Yahoo Finance"가 아닌 것
             if not title:
                 h1_tags = soup.find_all("h1")
                 for h1 in h1_tags:
-                    h1_text = h1.get_text(strip=True)
-                    if h1_text and h1_text != "Yahoo Finance" and len(h1_text) > 10:
-                        title = h1_text
+                    text = h1.get_text(strip=True)
+                    if text and text != "Yahoo Finance" and len(text) > 8:
+                        title = text
                         break
-            
-            # 3. title 태그 백업
+
             if not title:
-                title_tag = soup.select_one("title")
+                title_tag = soup.find("title")
                 if title_tag:
-                    title_text = title_tag.get_text(strip=True)
-                    if " - Yahoo Finance" in title_text:
-                        title = title_text.replace(" - Yahoo Finance", "")
-                    else:
-                        title = title_text
-            
+                    t = title_tag.get_text(strip=True)
+                    title = t.replace(" - Yahoo Finance", "").replace(" - Yahoo", "")
+
             article["title"] = title if title else "No Title"
 
-            # 본문
+            # 본문 추출
             content_parts = []
-            body = soup.find("article") or soup.find("div", class_="caas-body")
+
+            body = (
+                soup.find("article")
+                or soup.find("div", class_="caas-body")
+                or soup.find("div", class_="article-body")
+                or soup.find("div", {"data-test-locator": "article-content"})
+            )
+
             if body:
                 for p in body.find_all("p"):
                     txt = p.get_text(strip=True)
                     if len(txt) > 20:
                         content_parts.append(txt)
 
+            if not content_parts:
+                for p in soup.find_all("p")[:15]:
+                    txt = p.get_text(strip=True)
+                    if len(txt) > 20 and 'cookie' not in txt.lower():
+                        content_parts.append(txt)
+
             article["content"] = "\n".join(content_parts) if content_parts else None
 
-            # 발행 시간 처리 (Yahoo Finance는 한국시간 표시)
-            time_tags = soup.find_all("time")
-            for tag in time_tags:
+            if not article["content"]:
+                print("⚠️ 본문 없음")
+                return None
+
+            # 시간 처리
+            for tag in soup.find_all("time"):
                 dt = tag.get("datetime")
                 if dt:
                     try:
-                        # datetime 파싱 (UTC 기준)
-                        utc_dt = datetime.fromisoformat(dt.replace("Z", "+00:00"))
-                        # KST로 변환 (Yahoo Finance는 한국시간 기준)
+                        if 'Z' in dt:
+                            utc_dt = datetime.fromisoformat(dt.replace("Z", "+00:00"))
+                        elif '+' in dt:
+                            utc_dt = datetime.fromisoformat(dt)
+                        else:
+                            utc_dt = datetime.fromisoformat(dt).replace(tzinfo=self.UTC)
+
                         kst_dt = utc_dt.astimezone(self.KST)
-                        
-                        # published_date는 UTC로 저장
+
                         article["published_date"] = utc_dt.strftime("%Y-%m-%d %H:%M:%S")
-                        article["kst_time"] = kst_dt  # 필터링용
-                        
+                        article["kst_time"] = kst_dt
                         return article
-                    except:
+
+                    except Exception:
                         continue
 
-            return article
-
-        except Exception as e:
-            print("파싱 실패:", e)
             return None
 
-    # 메인 크롤링
-    def scrape_news(self, scroll_count=30, max_articles=500, headless=True):
+        except Exception as e:
+            print(f"❌ 파싱 실패: {e}")
+            return None
+
+
+    def scrape_news(self, max_articles=300):
         global seen_urls
+        
+        all_links = self.scrape_news_pages()
+        
+        print("="*60)
+        print(f"총 수집된 링크: {len(all_links)}개")
+        print("="*60)
 
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=headless)
-            context = browser.new_context()
-            page = context.new_page()
+        articles = []
+        
+        for idx, url in enumerate(all_links[:max_articles], 1):
+            print(f"\n[{idx}/{min(len(all_links), max_articles)}] {url}")
 
-            try:
-                links = self.scroll_and_collect_links(page, scroll_count)
+            if url in seen_urls:
+                print("⏭️ 중복 스킵")
+                continue
 
-                articles = []
-                for idx, url in enumerate(links[:max_articles], 1):
-                    print(f"[{idx}/{len(links)}] {url}")
+            seen_urls.add(url)
+            data = self.parse_article(url)
 
-                    if url in seen_urls:
-                        print(" - 중복 스킵")
-                        continue
-                    seen_urls.add(url)
+            if not data:
+                print("⚠️ 기사 파싱 실패 또는 본문/날짜 없음")
+                continue
 
-                    data = self.parse_article(page, url)
-                    if not data or not data.get("published_date") or not data.get("kst_time"):
-                        continue
+            if not self.is_within_last_hour(data["kst_time"]):
+                continue
 
-                    # KST 기준으로 필터링
-                    kst_dt = data["kst_time"]
-                    if not self.is_within_last_hour(kst_dt):
-                        print(f"필터링 제외: 1시간 범위 밖")
-                        continue
+            del data["kst_time"]
+            articles.append(data)
 
-                    # kst_time 필드 제거 후 추가
-                    del data["kst_time"]
-                    articles.append(data)
-                    print(f"필터링 통과: 수집 대상")
+            time.sleep(0.3)
 
-                return pd.DataFrame(articles)
+        return pd.DataFrame(articles)
 
-            finally:
-                context.close()
-                browser.close()
 
-    # 저장
     def save_to_json(self, df, filename):
         if df.empty:
-            print("저장할 데이터 없음")
+            print("❌ 저장할 데이터 없음")
             return
-        df.to_json(filename, orient="records", indent=2, force_ascii=False)
-        print(f"저장 완료 → {filename}")
+        
+        data = df.to_dict(orient="records")
+        json_text = json.dumps(data, indent=2, ensure_ascii=False)
+        json_text = json_text.replace("\\/", "/")
 
-# 실행부
+        with open(filename, "w", encoding="utf-8") as f:
+            f.write(json_text)
+
+        print(f"✅ 저장 완료 → {filename} (총 {len(df)}개 기사)")
+
+
 def main():
-    scraper = YahooFinanceNewsScraperPlaywright()
-    df = scraper.scrape_news(scroll_count=25, max_articles=300, headless=True)
+    scraper = YahooFinanceNewsScraper()
+    df = scraper.scrape_news(max_articles=300)
 
     if not df.empty:
+        print("\n" + "="*60)
+        print(f"✅ 수집 완료: 총 {len(df)}개 기사")
+        print("="*60)
         print(df[["title", "published_date"]])
         scraper.save_to_json(df, "yahoo_finance_last1h.json")
     else:
-        print("최근 1시간 기사 없음.")
+        print("\n⚠️  최근 1시간 기사 없음.")
 
 
 if __name__ == "__main__":
