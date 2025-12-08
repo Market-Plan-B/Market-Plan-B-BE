@@ -263,7 +263,7 @@ def main():
     # 매 시간 정각: 크롤링 + contents 저장
     scheduler.add_job(
         hourly_job,
-        CronTrigger(minute=10),
+        CronTrigger(minute=12),
         id='hourly_crawl',
         max_instances=1,
         misfire_grace_time=3600,
