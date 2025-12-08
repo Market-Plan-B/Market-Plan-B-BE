@@ -34,7 +34,7 @@ def is_within_last_hour(pub_date: datetime):
     
     # KST 기준 최근 1시간 범위 계산
     now_kst = datetime.now(KST)
-    start_kst = now_kst - timedelta(hours=3)
+    start_kst = now_kst - timedelta(hours=1)
     
     start_utc = start_kst.astimezone(UTC)
     end_utc = now_kst.astimezone(UTC)

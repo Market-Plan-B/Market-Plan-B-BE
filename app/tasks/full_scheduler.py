@@ -267,7 +267,7 @@ def main():
     # 매 시간 정각: 크롤링 + contents 저장
     scheduler.add_job(
         hourly_job,
-        CronTrigger(minute=12),
+        CronTrigger(minute=0),
         id='hourly_crawl',
         max_instances=1,
         misfire_grace_time=3600,
@@ -277,7 +277,7 @@ def main():
     # 매일 자정: 24시간 데이터로 전체 파이프라인
     scheduler.add_job(
         daily_job,
-        CronTrigger(hour=20, minute=30),
+        CronTrigger(hour=0, minute=30),
         id='daily_pipeline',
         max_instances=1,
         misfire_grace_time=3600,
@@ -287,7 +287,7 @@ def main():
     # 매주 목요일 오전 1시: 주간 리포트 생성
     scheduler.add_job(
         weekly_job,
-        CronTrigger(day_of_week='mon', hour=20, minute=40),
+        CronTrigger(day_of_week='thu', hour=1, minute=0),
         id='weekly_report',
         max_instances=1,
         misfire_grace_time=3600,
