@@ -2,10 +2,12 @@ from app.ai.services.brent_data_pipeline import build_full_dataset
 from app.ai.services.unstructured_refine import unstructure_refine
 from app.ai.services.pipeline_inference import run_inference
 from app.ai.services.unstructured_summary import daily_news_data
+from app.ai.services.card2 import generate_top5_cards
+
 
 import pandas as pd
-from datetype import datetype
 import json
+
 
 def db_load():
     """
@@ -47,12 +49,14 @@ def daily_modeling(news_list):
     }
 
     """
-    df = build_full_dataset(news = news_list)
-    df_re = df[df.index >= pd.to_datetime("2025-11-18")]
-    print(df_re.head())
-    df_refine = unstructure_refine(df_re)
+    print("STEP 1: Building dataset (raw + cluster)...")
+    df0 = build_full_dataset(news=news_list)
 
-    output = run_inference(news_list= news_list, df = df_refine)
+    print("STEP 2: Refining dataset (news impact)...")
+    df1 = unstructure_refine(df0)
+
+    print("STEP 3: Running inference...")
+    output = run_inference(news_list=news_list, df=df1)
 
     return output
 
@@ -63,6 +67,17 @@ date = "2025-11-18"
 
 
 result = daily_modeling(news_list)
+
+
+# ===============================================================================================
+# ===============================Card 생성======================================================
+# ===============================================================================================
+
+result = generate_top5_cards(
+    news_list,
+    output_dir="./" # 경로 지정해줄 고대영??
+)
+print(result["card_images"])
 
 
 # ===============================================================================================
@@ -158,7 +173,7 @@ minimal_strategies = {
             "data_evidence": s["data_evidence"],
             "risk_note": s["risk_note"],
         }
-        for s in action["strategies"]
+        for s in parsed_json["strategies"]
     ]
 }
 
@@ -177,3 +192,77 @@ print(report)
 
 with open("daily_report.html", "w", encoding="utf-8") as f:
     f.write(report)
+
+
+# ==================================================================
+# ========================위클리리포트=============================
+# ==================================================================
+from app.ai.services.data_pipeline import (
+    build_report_sources,  # full_df, eia_objs, cot_weekly, cot_daily
+    build_eia_weekly,
+    build_cot_weekly,
+)
+from app.ai.nodes.weeklyreportgenerator import refine_weekly_news, build_weekly_report_payload, weeklyreportgenerator
+
+"""
+실제 yfinance + EIA + CFTC API를 호출하고,
+로컬 JSON (뉴스/모델 output)까지 붙여서
+Weekly Report를 생성하기.
+"""
+
+# 1) 리포트 기준일
+END_DATE = "2025-11-19"
+
+# 2) 리포트용 공통 데이터 소스 생성
+sources = build_report_sources(end_date=END_DATE)
+
+full_df = sources["full_df"]
+eia_objs = sources["eia_objs"]
+cot_weekly = sources["cot_weekly"]
+
+# 3) 하루치 모델 output (예측 + XAI) 로드
+with open("data/prediction_2025_11_19.json", "r", encoding="utf-8") as f:
+    one_day_output = json.load(f)
+
+# build_weekly_* 함수가 기대하는 daily_results 형태로 래핑
+daily_model_results = [
+    {
+        "date": END_DATE,
+        "prediction": one_day_output["prediction"],
+        "xai": one_day_output.get("xai", []),
+    }
+]
+
+# 5) 뉴스 로드
+with open("data/extra_embedded (1).json", "r", encoding="utf-8") as f:
+    raw_news = json.load(f)
+
+if isinstance(raw_news, list):
+    news_weekly = raw_news
+elif isinstance(raw_news, dict):
+    if "data" in raw_news:
+        news_weekly = raw_news["data"]
+    elif "items" in raw_news:
+        news_weekly = raw_news["items"]
+    else:
+        news_weekly = [raw_news]
+else:
+    news_weekly = []
+
+news_weekly = refine_weekly_news(news_weekly)
+
+
+# 7) 주간 리포트 payload 생성
+payload = build_weekly_report_payload(
+    end_date=END_DATE,
+    full_df=full_df,
+    daily_model_results=daily_model_results,
+    news_weekly=news_weekly,
+    eia_objs=eia_objs,
+    cot_weekly=cot_weekly,
+)
+
+# 8) LLM 호출로 HTML 리포트 생성
+html = weeklyreportgenerator(payload)
+
+print(html)
