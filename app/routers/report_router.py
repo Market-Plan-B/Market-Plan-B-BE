@@ -59,11 +59,17 @@ async def get_daily_report(query_date: str = Query(...), db: Session = Depends(g
 
 @router.get("/weekly/report", response_model=ReportResponse)
 async def get_weekly_report(
-    date: date,
+    query_date: str = Query(None),
     db: Session = Depends(get_db)
 ):
+    # 기본값: 당일 날짜
+    if query_date is None:
+        target_date = date.today()
+    else:
+        target_date = datetime.strptime(query_date, "%Y-%m-%d").date()
+    
     # 날짜가 속한 주 계산
-    start_date, end_date = get_week_range(date)
+    start_date, end_date = get_week_range(target_date)
 
     # 주간 리포트 조회 (해당 주 범위 내에 있는 리포트)
     report = db.query(Report).filter(
