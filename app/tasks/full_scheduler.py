@@ -113,13 +113,23 @@ def crawl_all_news():
     logger.info(f"총 {len(all_articles)}개 기사 수집")
     
     # JSON 저장
+    import os
     date_str = datetime.now().strftime('%Y%m%d')
-    json_path = f'app/ai/repository/data/news/news_{date_str}.json'
+    json_dir = 'app/ai/repository/data/news'
+    json_path = f'{json_dir}/news_{date_str}.json'
     
-    with open(json_path, 'w', encoding='utf-8') as f:
-        json.dump(all_articles, f, ensure_ascii=False, indent=2)
-    
-    logger.info(f"저장 완료: {json_path}")
+    try:
+        os.makedirs(json_dir, exist_ok=True)
+        logger.info(f"디렉토리 확인/생성: {json_dir}")
+        
+        with open(json_path, 'w', encoding='utf-8') as f:
+            json.dump(all_articles, f, ensure_ascii=False, indent=2)
+        
+        logger.info(f"JSON 저장 완료: {json_path} ({len(all_articles)}개 기사)")
+        
+    except Exception as e:
+        logger.error(f"JSON 저장 실패: {e}", exc_info=True)
+        raise
     
     return json_path, all_articles
 
@@ -181,6 +191,7 @@ def run_ai_pipeline(json_path):
 
 def hourly_job():
     """1시간마다: 크롤링 → contents 저장"""
+    logger.info("=== hourly_job 시작 ===")
     try:
         json_path, articles = crawl_all_news()
         
@@ -188,16 +199,18 @@ def hourly_job():
             logger.warning("크롤링된 기사가 없습니다")
             return
         
+        logger.info(f"JSON 파일 경로: {json_path}")
         save_hourly_contents(json_path)
         
-        logger.info("시간별 크롤링 작업 완료")
+        logger.info("=== hourly_job 완료 ===")
         
     except Exception as e:
-        logger.error(f"시간별 작업 실패: {e}", exc_info=True)
+        logger.error(f"hourly_job 실패: {e}", exc_info=True)
 
 
 def daily_job():
     """24시간마다: 전체 AI 파이프라인 실행"""
+    logger.info("=== daily_job 시작 ===")
     try:
         import os
         date_str = datetime.now().strftime('%Y%m%d')
@@ -207,14 +220,15 @@ def daily_job():
             logger.error(f"24시간 데이터 파일 없음: {json_path}")
             return
         
+        logger.info(f"JSON 파일 발견: {json_path}")
         result = run_ai_pipeline(json_path)
         
         logger.info("=" * 80)
-        logger.info("일일 전체 파이프라인 완료")
+        logger.info("=== daily_job 완료 ===")
         logger.info("=" * 80)
         
     except Exception as e:
-        logger.error(f"일일 작업 실패: {e}", exc_info=True)
+        logger.error(f"daily_job 실패: {e}", exc_info=True)
 
 
 def weekly_job():
@@ -245,7 +259,7 @@ def main():
     # 매 시간 정각: 크롤링 + contents 저장
     scheduler.add_job(
         hourly_job,
-        CronTrigger(minute=20),
+        CronTrigger(minute=30),
         id='hourly_crawl',
         max_instances=1,
         misfire_grace_time=3600,
@@ -255,7 +269,7 @@ def main():
     # 매일 자정: 24시간 데이터로 전체 파이프라인
     scheduler.add_job(
         daily_job,
-        CronTrigger(hour=17, minute=30),
+        CronTrigger(hour=19, minute=40),
         id='daily_pipeline',
         max_instances=1,
         misfire_grace_time=3600,
@@ -265,7 +279,7 @@ def main():
     # 매주 목요일 오전 1시: 주간 리포트 생성
     scheduler.add_job(
         weekly_job,
-        CronTrigger(day_of_week='mon', hour=17, minute=40),
+        CronTrigger(day_of_week='mon', hour=19, minute=50),
         id='weekly_report',
         max_instances=1,
         misfire_grace_time=3600,
