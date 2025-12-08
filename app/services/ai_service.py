@@ -15,6 +15,7 @@ from app.ai.nodes.actiongenerator import actiongenerator
 from app.ai.nodes.reportgenerator import reportgenerator
 
 from app.db.db_setting import Analytics, RecommendedStrategy, Report, Content, Region, ReportContent
+from app.services.chroma_service import chroma_service
 
 # ISO 국가 코드 매핑
 COUNTRY_CODES = {
@@ -133,6 +134,16 @@ def save_contents(db: Session, news_list: list) -> list:
     
     return saved_contents
 
+def save_to_chroma(news_list: list) -> int:
+    """Chroma DB에 벡터 저장"""
+    try:
+        chroma_count = chroma_service.add_news_embeddings(news_list)
+        print(f"Chroma DB 저장 완료: {chroma_count}개 뉴스")
+        return chroma_count
+    except Exception as e:
+        print(f"Chroma DB 저장 실패: {e}")
+        return 0
+
 
 def save_regions(db: Session, news_list: list):
     """regions 테이블 업데이트"""
@@ -149,7 +160,10 @@ def save_regions(db: Session, news_list: list):
     
     for name, code in countries.items():
         existing = db.query(Region).filter(Region.name == name).first()
-        if not existing:
+        if existing:
+            if code:
+                existing.code = code
+        else:
             db_region = Region(
                 name=name,
                 code=code or "XX",
@@ -284,10 +298,13 @@ def run_full_pipeline(db: Session, target_datetime: datetime, json_path: str) ->
     saved_contents = save_contents(db, news_list)
     content_ids = [c.id for c in saved_contents]
     
-    # 5. region_score 업데이트
+    # 5. Chroma DB에 벡터 저장
+    save_to_chroma(news_list)
+    
+    # 6. region_score 업데이트
     update_region_scores(db, news_list)
     
-    # 6. 모델링 실행
+    # 7. 모델링 실행
     df = build_full_dataset(news=news_list)
     if not isinstance(df.index, pd.DatetimeIndex):
         df.index = pd.to_datetime(df.index)
@@ -295,16 +312,16 @@ def run_full_pipeline(db: Session, target_datetime: datetime, json_path: str) ->
     df_refined = unstructure_refine(df_filtered)
     modeling_result = run_inference(news_list=news_list, df=df_refined)
     
-    # 7. analytics 저장
+    # 8. analytics 저장
     db_analytics = save_analytics(db, target_date, modeling_result, df_filtered)
     
-    # 8. 정형 데이터 준비 (임시)
+    # 9. 정형 데이터 준비 (임시)
     filtered_data = pd.DataFrame()
     
-    # 9. 뉴스 압축
+    # 10. 뉴스 압축
     news_compact = build_compact_news_list(news_list, max_news=5)
     
-    # 10. 대응책 생성
+    # 11. 대응책 생성
     try:
         action_result = actiongenerator(
             date=date_str,
@@ -318,10 +335,10 @@ def run_full_pipeline(db: Session, target_datetime: datetime, json_path: str) ->
         print(f"Warning: 대응책 생성 실패 - {e}")
         action_dict = {"strategies": []}
     
-    # 11. strategies 저장
+    # 12. strategies 저장
     db_strategies = save_strategies(db, action_dict)
     
-    # 12. 리포트 생성
+    # 13. 리포트 생성
     try:
         report_html = reportgenerator(
             date=date_str,
@@ -347,7 +364,7 @@ def run_full_pipeline(db: Session, target_datetime: datetime, json_path: str) ->
         print(f"Warning: 리포트 생성 실패 - {e}")
         report_html = "<html><body><h1>Report Generation Failed</h1></body></html>"
     
-    # 12. report 저장
+    # 14. report 저장
     db_report = save_report(db, target_date, report_html, content_ids)
     
     return {
