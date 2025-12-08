@@ -2,10 +2,12 @@ from app.ai.services.brent_data_pipeline import build_full_dataset
 from app.ai.services.unstructured_refine import unstructure_refine
 from app.ai.services.pipeline_inference import run_inference
 from app.ai.services.unstructured_summary import daily_news_data
+from app.ai.services.card2 import generate_top5_cards
+
 
 import pandas as pd
-from datetype import datetype
 import json
+
 
 def db_load():
     """
@@ -47,12 +49,14 @@ def daily_modeling(news_list):
     }
 
     """
-    df = build_full_dataset(news = news_list)
-    df_re = df[df.index >= pd.to_datetime("2025-11-18")]
-    print(df_re.head())
-    df_refine = unstructure_refine(df_re)
+    print("STEP 1: Building dataset (raw + cluster)...")
+    df0 = build_full_dataset(news=news_list)
 
-    output = run_inference(news_list= news_list, df = df_refine)
+    print("STEP 2: Refining dataset (news impact)...")
+    df1 = unstructure_refine(df0)
+
+    print("STEP 3: Running inference...")
+    output = run_inference(news_list=news_list, df=df1)
 
     return output
 
@@ -63,6 +67,17 @@ date = "2025-11-18"
 
 
 result = daily_modeling(news_list)
+
+
+# ===============================================================================================
+# ===============================Card 생성======================================================
+# ===============================================================================================
+
+result = generate_top5_cards(
+    news_list,
+    output_dir="./" # 경로 지정해줄 고대영??
+)
+print(result["card_images"])
 
 
 # ===============================================================================================
@@ -158,7 +173,7 @@ minimal_strategies = {
             "data_evidence": s["data_evidence"],
             "risk_note": s["risk_note"],
         }
-        for s in action["strategies"]
+        for s in parsed_json["strategies"]
     ]
 }
 

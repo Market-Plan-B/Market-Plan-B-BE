@@ -8,6 +8,22 @@ import joblib
 # AI 모듈 내부 임포트 경로 수정
 from app.ai.services.brent_data_pipeline import build_full_dataset
 from app.ai.models.bigru_model import BiGRU   
+from pathlib import Path
+
+# 여기 경로도 지정해야되는데
+
+BASE_DIR = Path(__file__).resolve().parent.parent 
+
+MODEL_DIR = BASE_DIR / "repository" / "structured_params" / "model_weight"
+
+MODEL_PATH = MODEL_DIR / "bigru_brent_ret5d.pth"
+SCALER_PATH = MODEL_DIR / "scaler_brent_ret5d.pkl"
+
+SAVE_DIR = BASE_DIR / "repository" / "data"
+SAVE_DIR.mkdir(parents=True, exist_ok=True)
+
+DEFAULT_SAVE_PATH = SAVE_DIR / "prediction_output.json"
+
 
 # --------------------------------------------------
 # 1) GRU 예측 + 가격 복원
@@ -69,15 +85,13 @@ def explain_gru_prediction_ig(model, X_sample, feature_names):
 # 3) end-to-end inference function
 # --------------------------------------------------
 
-def run_inference(
-    news_list,
-    df,
-    model_path=r"app\ai\repository\structured_params\model_weight\bigru_brent_ret5d.pth",
-    scaler_path=r"app\ai\repository\structured_params\model_weight\scaler_brent_ret5d.pkl",
-    seq_len=30,
-    target_horizon=5,
-    save_path=None
-):
+def run_inference(news_list, df, 
+                  model_path=MODEL_PATH,
+                  scaler_path=SCALER_PATH,
+                  seq_len=30,
+                  target_horizon=5,
+                  save_path=DEFAULT_SAVE_PATH):
+
 
     # # ------------------------
     # # (1) 데이터 생성
@@ -107,7 +121,8 @@ def run_inference(
 
     input_dim = len(feature_names)
 
-    model = BiGRU(input_dim=input_dim, hidden_dim=64, num_layers=1)
+    #model = BiGRU(input_dim=input_dim, hidden_dim=64, num_layers=1)
+    model = BiGRU(input_dim=input_dim, hidden_dim=256, num_layers=3)
     model.load_state_dict(torch.load(model_path, map_location="cpu"))
     model.eval()
 
@@ -132,7 +147,7 @@ def run_inference(
     )
 
     # ------------------------
-    # (6) 결과 반환
+    # (6) 저장
     # ------------------------
     output = {
         "prediction": {
@@ -142,12 +157,12 @@ def run_inference(
         },
         "xai": xai
     }
-
-    if save_path:
-        with open(save_path, "w", encoding="utf-8") as f:
-            json.dump(output, f, ensure_ascii=False, indent=2)
+    print(output)
+    with open(save_path, "w", encoding="utf-8") as f:
+        json.dump(output, f, ensure_ascii=False, indent=2)
 
     return output
+
 
 
 
