@@ -146,6 +146,10 @@ def save_hourly_contents(json_path):
         saved_contents = save_contents(db, news_list)
         update_region_scores(db, news_list)
         
+        # ChromaDB에 저장
+        from app.services.ai_service import save_to_chroma
+        save_to_chroma(news_list)
+        
         logger.info(f"Contents 저장 완료: {len(saved_contents)}개")
         
     except Exception as e:
@@ -242,7 +246,7 @@ def main():
     
     logger.info("통합 스케줄러 시작")
     logger.info(f"현재 시간: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    logger.info("- 매 시간 0분: 크롤링 + contents 저장")
+    logger.info("- 매 시간 0분: 크롤링 + contents 저장 + Chroma DB 저장")
     logger.info("- 매일 00:30: 전체 AI 파이프라인")
     
     try:

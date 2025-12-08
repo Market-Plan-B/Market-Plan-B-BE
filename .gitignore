@@ -205,3 +205,9 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Chroma DB
+chroma_db/
+
+# macOS
+.DS_Store

@@ -39,7 +39,7 @@ class Region(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String(100), nullable=False)
-    code = Column(String(10), unique=True, nullable=False)
+    code = Column(String(10), nullable=False)
     region_score = Column(Numeric(3, 2))
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
