@@ -1,14 +1,10 @@
 from pydantic import BaseModel
 from typing import List
 
-class NewsItem(BaseModel):
-    date: str
-    title: str
-    summary: str
-    url: str
 
-class CardNewsResponse(BaseModel):
-    news: List[NewsItem]
+
+class CardNewsImagesResponse(BaseModel):
+    images: List[str]
 
 class ReportResponse(BaseModel):
     start_date: str
