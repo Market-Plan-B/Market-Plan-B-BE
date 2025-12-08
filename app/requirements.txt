@@ -39,3 +39,5 @@ tensorflow-cpu
 transformers
 openai
 google-genai
+chromadb
+sentence-transformers

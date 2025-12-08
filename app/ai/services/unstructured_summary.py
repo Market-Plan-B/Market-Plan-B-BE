@@ -396,23 +396,22 @@ def analyze_article(article_data: dict, client):
             "summary": analysis.get("summary", ""),
             "sentiment": analysis.get("sentiment", {"explanation": "", "score": 0.5}),
             "trust": analysis.get("trust", {"explanation": "", "score": 0.5, "reliable": True}),
-            "relation_nation": analysis.get("relation_nation", []),
+            "relation_nation": relation_nation,
             "daily_change_pct": daily_change_pct
         }
-        if not result["summary"] or result["summary"] == "":
-            result["summary"] = "요약 정보 없음"
-        if not result["relation_nation"] or len(result["relation_nation"]) == 0:
-            result["relation_nation"] = [{"name": "United States", "code": "USA"}]
+        # relation_nation 검증 및 기본값 설정
+        relation_nation = analysis.get("relation_nation", [])
+        if not relation_nation or len(relation_nation) == 0:
+            relation_nation = [{"name": "United States", "code": "USA"}]
         else:
-            # 각 국가 객체가 name과 code를 모두 가지고 있는지 검증
             validated_nations = []
-            for nation in result["relation_nation"]:
+            for nation in relation_nation:
                 if isinstance(nation, dict) and "name" in nation and "code" in nation:
                     validated_nations.append(nation)
             if not validated_nations:
-                result["relation_nation"] = [{"name": "United States", "code": "USA"}]
+                relation_nation = [{"name": "United States", "code": "USA"}]
             else:
-                result["relation_nation"] = validated_nations
+                relation_nation = validated_nations
         if not isinstance(result.get("sentiment"), dict):
             result["sentiment"] = {
                 "explanation": "감성 분석 정보를 제대로 받지 못해 기본값을 사용함.",

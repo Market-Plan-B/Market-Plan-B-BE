@@ -148,8 +148,15 @@ def save_to_chroma(news_list: list) -> int:
 def save_regions(db: Session, news_list: list):
     """regions 테이블 업데이트"""
     countries = {}
+    
+    print(f"[save_regions] 뉴스 개수: {len(news_list)}")
+    
     for news in news_list:
         relation_nations = news.get("relation_nation", [])
+        
+        if not relation_nations:
+            continue
+            
         if isinstance(relation_nations, list):
             for item in relation_nations:
                 if isinstance(item, dict):
@@ -157,26 +164,46 @@ def save_regions(db: Session, news_list: list):
                     code = item.get("code")
                     if name:
                         countries[name] = code
+                        print(f"[save_regions] 발견된 국가: {name} ({code})")
+    
+    print(f"[save_regions] 총 {len(countries)}개 국가 발견")
+    
+    if not countries:
+        print("[save_regions] Warning: relation_nation 데이터가 없습니다")
+        return
     
     for name, code in countries.items():
-        existing = db.query(Region).filter(Region.name == name).first()
-        if existing:
-            if code:
-                existing.code = code
-        else:
-            db_region = Region(
-                name=name,
-                code=code or "XX",
-                region_score=0.0
-            )
-            db.add(db_region)
+        try:
+            existing = db.query(Region).filter(Region.name == name).first()
+            if existing:
+                if code:
+                    existing.code = code
+                print(f"[save_regions] 업데이트: {name}")
+            else:
+                db_region = Region(
+                    name=name,
+                    code=code or "XX",
+                    region_score=0.0
+                )
+                db.add(db_region)
+                print(f"[save_regions] 신규 추가: {name} ({code})")
+        except Exception as e:
+            print(f"[save_regions] 에러 ({name}): {e}")
     
-    db.commit()
+    try:
+        db.commit()
+        print(f"[save_regions] DB 커밋 완료")
+    except Exception as e:
+        print(f"[save_regions] 커밋 실패: {e}")
+        db.rollback()
+        raise
 
 
 def update_region_scores(db: Session, news_list: list):
     """contents 저장 후 region_score 계산 및 업데이트"""
     country_scores = {}
+    
+    print(f"[update_region_scores] 뉴스 개수: {len(news_list)}")
     
     for news in news_list:
         sentiment = news.get("sentiment") or {}
@@ -192,12 +219,22 @@ def update_region_scores(db: Session, news_list: list):
                             country_scores[name] = []
                         country_scores[name].append(abs(float(sentiment_score)))
     
+    print(f"[update_region_scores] {len(country_scores)}개 국가의 점수 계산")
+    
     for country, scores in country_scores.items():
         region = db.query(Region).filter(Region.name == country).first()
         if region and scores:
-            region.region_score = sum(scores) / len(scores)
+            avg_score = sum(scores) / len(scores)
+            region.region_score = avg_score
+            print(f"[update_region_scores] {country}: {avg_score:.4f}")
     
-    db.commit()
+    try:
+        db.commit()
+        print(f"[update_region_scores] DB 커밋 완료")
+    except Exception as e:
+        print(f"[update_region_scores] 커밋 실패: {e}")
+        db.rollback()
+        raise
 
 
 def save_strategies(db: Session, action_content: dict) -> list:
