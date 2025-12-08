@@ -88,10 +88,16 @@ Generate ONLY one image part as the result.
                 img = Image.open(io.BytesIO(img_bytes))
                 img.save(output_path, format="WEBP")
                 print("WebP 이미지 저장:", output_path)
-                return output_path
+
+                # === Base64 변환 ===
+                with open(output_path, "rb") as f:
+                    encoded = base64.b64encode(f.read()).decode("utf-8")
+
+                return output_path, encoded
             except Exception as e:
                 print("이미지 저장 실패:", e)
                 continue
+
 
     print("IMAGE part를 찾지 못했습니다.")
     return None
@@ -101,34 +107,48 @@ def generate_top5_cards(articles, output_dir="app/ai/repository/data/images"):
     입력:
         - articles: 뉴스 리스트
         - output_dir: 이미지가 저장될 폴더 경로 (폴더만)
-    출력:
+    출력 예)
         {
-            "top5_articles": [...뉴스 5개...],
-            "card_images": [...이미지 path 리스트...]
+            "top5_articles": [...],
+            "card_images": [
+                {"path": "...", "base64": "..."},
+                ...
+            ]
         }
     """
-    # 1) sentiment.score 기준 Top-5 정렬
+    # 1) sentiment.score 기준 Top-5
     sorted_articles = sorted(
         articles,
         key=lambda x: x.get("sentiment", {}).get("score", 0),
         reverse=True
     )
     top5 = sorted_articles[:4]
-    # 2) 저장 폴더 생성
+
+    # 2) 폴더 생성
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    image_paths = []
-    # 3) 카드뉴스 생성
+
+    image_results = []
+
+    # 3) 카드 생성
     for idx, article in enumerate(top5):
         summary = article.get("summary")
         if not summary:
             continue
+
         img_path = output_dir / f"top5_card_{idx}.webp"
+
         result = generate_card_news(summary, str(img_path))
+
         if result:
-            image_paths.append(result)
-            print(f"[Top5-{idx}] 카드뉴스 생성 완료 → {result}")
+            saved_path, encoded = result 
+            image_results.append({
+                "path": saved_path,
+                "base64": encoded
+            })
+            print(f"[Top5-{idx}] 카드뉴스 생성 완료 → {saved_path}")
+
     return {
         "top5_articles": top5,
-        "card_images": image_paths
+        "card_images": image_results
     }
