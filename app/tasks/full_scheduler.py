@@ -95,20 +95,24 @@ def crawl_all_news():
     logger.info("크롤링 시작")
     logger.info("=" * 80)
     
-    with ThreadPoolExecutor(max_workers=4) as executor:
+    with ThreadPoolExecutor(max_workers=3) as executor:
         futures = {
-            'oilprice': executor.submit(run_single_crawler, run_oilprice, 2700),
-            'google': executor.submit(run_single_crawler, run_google, 2700),
-            'investing': executor.submit(run_single_crawler, run_investing, 2700),
-            'yahoo': executor.submit(run_single_crawler, run_yahoo, 2700),
+            'oilprice': executor.submit(run_single_crawler, run_oilprice, 600),
+            'google': executor.submit(run_single_crawler, run_google, 600),
+            # 'investing': executor.submit(run_single_crawler, run_investing, 600),  # 임시 비활성화
+            'yahoo': executor.submit(run_single_crawler, run_yahoo, 600),
         }
         
-        oilprice = futures['oilprice'].result()
-        google = futures['google'].result()
-        investing = futures['investing'].result()
-        yahoo = futures['yahoo'].result()
+        oilprice = futures['oilprice'].result(timeout=700)
+        google = futures['google'].result(timeout=700)
+        investing = []  # 임시로 빈 배열
+        yahoo = futures['yahoo'].result(timeout=700)
     
-    all_articles = oilprice + google + investing + yahoo
+    all_articles = []
+    for name, articles in [('oilprice', oilprice), ('google', google), ('investing', investing), ('yahoo', yahoo)]:
+        if articles:
+            all_articles.extend(articles)
+            logger.info(f"{name}: {len(articles)}개 수집")
     
     logger.info(f"총 {len(all_articles)}개 기사 수집")
     
@@ -259,7 +263,7 @@ def main():
     # 매 시간 정각: 크롤링 + contents 저장
     scheduler.add_job(
         hourly_job,
-        CronTrigger(minute=30),
+        CronTrigger(minute=10),
         id='hourly_crawl',
         max_instances=1,
         misfire_grace_time=3600,
@@ -269,7 +273,7 @@ def main():
     # 매일 자정: 24시간 데이터로 전체 파이프라인
     scheduler.add_job(
         daily_job,
-        CronTrigger(hour=19, minute=40),
+        CronTrigger(hour=20, minute=30),
         id='daily_pipeline',
         max_instances=1,
         misfire_grace_time=3600,
@@ -279,7 +283,7 @@ def main():
     # 매주 목요일 오전 1시: 주간 리포트 생성
     scheduler.add_job(
         weekly_job,
-        CronTrigger(day_of_week='mon', hour=19, minute=50),
+        CronTrigger(day_of_week='mon', hour=20, minute=40),
         id='weekly_report',
         max_instances=1,
         misfire_grace_time=3600,
