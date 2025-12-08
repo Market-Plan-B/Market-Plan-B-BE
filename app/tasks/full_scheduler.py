@@ -12,7 +12,7 @@ import logging
 from app.crawlers.oilprice_crawling import crawl_oilprice_last_hour
 from app.crawlers.google_crawling import get_latest_google_news
 from app.crawlers.investing_crawling import crawl_brent_news_hourly
-from app.crawlers.yahoo_crawling import YahooFinanceNewsScraperPlaywright
+from app.crawlers.yahoo_crawling import YahooFinanceNewsScraper
 from app.db.database import SessionLocal
 from app.services.ai_service import run_full_pipeline, load_news_from_json, save_contents, save_regions, update_region_scores
 
@@ -73,10 +73,13 @@ def run_investing():
         return []
 
 
+
+
+
 def run_yahoo():
     try:
-        scraper = YahooFinanceNewsScraperPlaywright()
-        df = scraper.scrape_news(scroll_count=15, max_articles=200, headless=True)
+        scraper = YahooFinanceNewsScraper()
+        df = scraper.scrape_news(max_articles=300)
         articles = df.to_dict('records') if not df.empty else []
         logger.info(f"Yahoo: {len(articles)}개")
         return articles
