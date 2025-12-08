@@ -15,6 +15,7 @@ from app.crawlers.investing_crawling import crawl_brent_news_hourly
 from app.crawlers.yahoo_crawling import YahooFinanceNewsScraper
 from app.db.database import SessionLocal
 from app.services.ai_service import run_full_pipeline, load_news_from_json, save_contents, save_regions, update_region_scores
+from app.services.weekly_service import generate_weekly_report
 
 # 로깅 설정
 logging.basicConfig(
@@ -216,6 +217,27 @@ def daily_job():
         logger.error(f"일일 작업 실패: {e}", exc_info=True)
 
 
+def weekly_job():
+    """매주 목요일: 7일치 데이터로 주간 리포트 생성"""
+    db = SessionLocal()
+    
+    try:
+        logger.info("=" * 80)
+        logger.info("주간 리포트 생성 시작")
+        logger.info("=" * 80)
+        
+        end_date = datetime.now()
+        weekly_report = generate_weekly_report(db, end_date)
+        
+        logger.info(f"주간 리포트 생성 완료: id={weekly_report.id}, "
+                   f"기간={weekly_report.start_date} ~ {weekly_report.end_date}")
+        
+    except Exception as e:
+        logger.error(f"주간 리포트 생성 실패: {e}", exc_info=True)
+    finally:
+        db.close()
+
+
 def main():
     """스케줄러 시작"""
     scheduler = BlockingScheduler()
@@ -240,10 +262,21 @@ def main():
         coalesce=True
     )
     
+    # 매주 목요일 오전 1시: 주간 리포트 생성
+    scheduler.add_job(
+        weekly_job,
+        CronTrigger(day_of_week='thu', hour=1, minute=0),
+        id='weekly_report',
+        max_instances=1,
+        misfire_grace_time=3600,
+        coalesce=True
+    )
+    
     logger.info("통합 스케줄러 시작")
     logger.info(f"현재 시간: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     logger.info("- 매 시간 0분: 크롤링 + contents 저장")
     logger.info("- 매일 00:30: 전체 AI 파이프라인")
+    logger.info("- 매주 목요일 01:00: 주간 리포트 생성")
     
     try:
         scheduler.start()
