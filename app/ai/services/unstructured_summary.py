@@ -498,8 +498,8 @@ def generate_summary_embeddings(
     tokenizer,
     model,
     output_file,
-    umap_path=r"app\ai\repository\structured_params\model_weight\umap_64to20.model",
-    kmeans_path=r"app\ai\repository\structured_params\model_weight\kmeans_20d_30clusters.model",
+    umap_path="app/ai/repository/structured_params/model_weight/umap_64to20.model",
+    kmeans_path="app/ai/repository/structured_params/model_weight/kmeans_20d_30clusters.model",
 ):
     embeddings_768 = []
     valid_indices = []
