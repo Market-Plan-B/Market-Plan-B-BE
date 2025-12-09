@@ -129,23 +129,23 @@ def get_brent_prices(event_date_str):
     end   = (event_date + timedelta(days=3)).strftime("%Y-%m-%d")
 
 
-    df = yf.download("BZ=F", start=start, end=end)
+    df = yf.download("BZ=F", start=start, end=end, auto_adjust=True, progress=False)
 
     if df.empty:
-        print("⚠ Yahoo Finance 데이터 없음")
         return None
 
     df.index = pd.to_datetime(df.index)
-
     prev_day = event_date - timedelta(days=1)
 
     def get_close(date):
         if date in df.index:
-            return float(df.loc[date]["Close"])
+            close_val = df.loc[date]["Close"]
+            return float(close_val.iloc[0]) if hasattr(close_val, 'iloc') else float(close_val)
         else:
             valid_days = df.index[df.index <= date]
             if len(valid_days):
-                return float(df.loc[valid_days[-1]]["Close"])
+                close_val = df.loc[valid_days[-1]]["Close"]
+                return float(close_val.iloc[0]) if hasattr(close_val, 'iloc') else float(close_val)
             return None
 
     prev_close = get_close(prev_day)
