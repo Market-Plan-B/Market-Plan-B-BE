@@ -41,13 +41,21 @@ def extract_daily_model_results(reports: list) -> list:
 
 def generate_weekly_report(db: Session, end_date: datetime) -> Report:
     """주간 리포트 생성"""
-    start_date = end_date - timedelta(days=6)
+    # start_date = end_date - timedelta(days=6)
     
     # 1. 최근 7일 daily report 조회
     daily_reports = get_last_7_days_reports(db, end_date)
     
-    if len(daily_reports) < 7:
-        raise ValueError(f"7일치 데이터 부족: {len(daily_reports)}개만 존재")
+    # 기존 로직: 7일치 데이터 필수
+    # if len(daily_reports) < 7:
+    #     raise ValueError(f"7일치 데이터 부족: {len(daily_reports)}개만 존재")
+    
+    # 테스트용: 1일치만 있어도 생성
+    if len(daily_reports) < 1:
+        raise ValueError(f"daily report가 없습니다")
+    
+    # start_date를 실제 첫 번째 리포트 날짜로 설정
+    start_date = daily_reports[0].start_date
     
     # 2. 모델 결과 추출
     daily_model_results = extract_daily_model_results(daily_reports)
