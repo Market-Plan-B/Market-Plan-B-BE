@@ -624,7 +624,7 @@ def daily_news_data(news_data):
         output_emb_file
     )
     # 10) 정형 데이터 + 클러스터링 통합
-    df_final, news_clusters= build_full_dataset(
+    df_final, news_clusters = build_full_dataset(
         final_articles,
         start="2013-09-01",
         end=None,
