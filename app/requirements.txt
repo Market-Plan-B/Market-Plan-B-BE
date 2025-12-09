@@ -35,7 +35,10 @@ scikit-learn
 statsmodels
 lightgbm
 umap-learn
-tensorflow-cpu
+tensorflow-cpu==2.15.0
+tf-keras
 transformers
 openai
 google-genai
+chromadb
+sentence-transformers

@@ -16,7 +16,7 @@ from app.ai.nodes.reportgenerator import reportgenerator
 
 from app.db.db_setting import Analytics, RecommendedStrategy, Report, Content, Region, ReportContent
 from app.db.db_setting import Notification
-
+from app.services.chroma_service import chroma_service
 
 # ISO 국가 코드 매핑
 COUNTRY_CODES = {
@@ -80,7 +80,7 @@ def save_analytics(db: Session, target_date: date, prediction_result: dict, df: 
     
     structured_features = {}
     for col in df.columns:
-        if col not in ['brent_close', 'wti_close']:
+        if col not in ['brent_close', 'wti_close', 'date']:
             structured_features[col] = df[col].tail(1).tolist()
     
     existing = db.query(Analytics).filter(Analytics.date == target_date).first()
@@ -135,12 +135,29 @@ def save_contents(db: Session, news_list: list) -> list:
     
     return saved_contents
 
+def save_to_chroma(news_list: list) -> int:
+    """Chroma DB에 벡터 저장"""
+    try:
+        chroma_count = chroma_service.add_news_embeddings(news_list)
+        print(f"Chroma DB 저장 완료: {chroma_count}개 뉴스")
+        return chroma_count
+    except Exception as e:
+        print(f"Chroma DB 저장 실패: {e}")
+        return 0
+
 
 def save_regions(db: Session, news_list: list):
     """regions 테이블 업데이트"""
     countries = {}
+    
+    print(f"[save_regions] 뉴스 개수: {len(news_list)}")
+    
     for news in news_list:
         relation_nations = news.get("relation_nation", [])
+        
+        if not relation_nations:
+            continue
+            
         if isinstance(relation_nations, list):
             for item in relation_nations:
                 if isinstance(item, dict):
@@ -148,23 +165,46 @@ def save_regions(db: Session, news_list: list):
                     code = item.get("code")
                     if name:
                         countries[name] = code
+                        print(f"[save_regions] 발견된 국가: {name} ({code})")
+    
+    print(f"[save_regions] 총 {len(countries)}개 국가 발견")
+    
+    if not countries:
+        print("[save_regions] Warning: relation_nation 데이터가 없습니다")
+        return
     
     for name, code in countries.items():
-        existing = db.query(Region).filter(Region.name == name).first()
-        if not existing:
-            db_region = Region(
-                name=name,
-                code=code or "XX",
-                region_score=0.0
-            )
-            db.add(db_region)
+        try:
+            existing = db.query(Region).filter(Region.name == name).first()
+            if existing:
+                if code:
+                    existing.code = code
+                print(f"[save_regions] 업데이트: {name}")
+            else:
+                db_region = Region(
+                    name=name,
+                    code=code or "XX",
+                    region_score=0.0
+                )
+                db.add(db_region)
+                print(f"[save_regions] 신규 추가: {name} ({code})")
+        except Exception as e:
+            print(f"[save_regions] 에러 ({name}): {e}")
     
-    db.commit()
+    try:
+        db.commit()
+        print(f"[save_regions] DB 커밋 완료")
+    except Exception as e:
+        print(f"[save_regions] 커밋 실패: {e}")
+        db.rollback()
+        raise
 
 
 def update_region_scores(db: Session, news_list: list):
     """contents 저장 후 region_score 계산 및 업데이트"""
     country_scores = {}
+    
+    print(f"[update_region_scores] 뉴스 개수: {len(news_list)}")
     
     for news in news_list:
         sentiment = news.get("sentiment") or {}
@@ -180,12 +220,22 @@ def update_region_scores(db: Session, news_list: list):
                             country_scores[name] = []
                         country_scores[name].append(abs(float(sentiment_score)))
     
+    print(f"[update_region_scores] {len(country_scores)}개 국가의 점수 계산")
+    
     for country, scores in country_scores.items():
         region = db.query(Region).filter(Region.name == country).first()
         if region and scores:
-            region.region_score = sum(scores) / len(scores)
+            avg_score = sum(scores) / len(scores)
+            region.region_score = avg_score
+            print(f"[update_region_scores] {country}: {avg_score:.4f}")
     
-    db.commit()
+    try:
+        db.commit()
+        print(f"[update_region_scores] DB 커밋 완료")
+    except Exception as e:
+        print(f"[update_region_scores] 커밋 실패: {e}")
+        db.rollback()
+        raise
 
 
 def save_strategies(db: Session, action_content: dict) -> list:
@@ -215,12 +265,15 @@ def save_strategies(db: Session, action_content: dict) -> list:
     return saved_strategies
 
 
-def save_report(db: Session, target_date: date, report_html: str, content_ids: list) -> Report:
+def save_report(db: Session, target_date: date, report_html: str, content_ids: list, card_images: list = None) -> Report:
     """reports 테이블 저장"""
     # HTML body 내부만 추출
     import re
     body_match = re.search(r'<body[^>]*>(.*?)</body>', report_html, re.DOTALL | re.IGNORECASE)
     body_content = body_match.group(1) if body_match else report_html
+    
+    if card_images is None:
+        card_images = []
     
     existing = db.query(Report).filter(
         Report.report_type == 'daily',
@@ -229,6 +282,7 @@ def save_report(db: Session, target_date: date, report_html: str, content_ids: l
     
     if existing:
         existing.html_content = body_content
+        existing.images = card_images
         db.commit()
         db.refresh(existing)
         report = existing
@@ -237,7 +291,8 @@ def save_report(db: Session, target_date: date, report_html: str, content_ids: l
             report_type='daily',
             start_date=target_date,
             end_date=target_date,
-            html_content=body_content
+            html_content=body_content,
+            images=card_images
         )
         db.add(db_report)
         db.commit()
@@ -286,27 +341,30 @@ def run_full_pipeline(db: Session, target_datetime: datetime, json_path: str) ->
     saved_contents = save_contents(db, news_list)
     content_ids = [c.id for c in saved_contents]
     
-    # 5. region_score 업데이트
+    # 5. Chroma DB에 벡터 저장
+    save_to_chroma(news_list)
+    
+    # 6. region_score 업데이트
     update_region_scores(db, news_list)
     
-    # 6. 모델링 실행
-    df = build_full_dataset(news=news_list)
+    # 7. 모델링 실행
+    df, _ = build_full_dataset(news=news_list)
     if not isinstance(df.index, pd.DatetimeIndex):
         df.index = pd.to_datetime(df.index)
     df_filtered = df.tail(60) if len(df) > 60 else df
     df_refined = unstructure_refine(df_filtered)
     modeling_result = run_inference(news_list=news_list, df=df_refined)
     
-    # 7. analytics 저장
+    # 8. analytics 저장
     db_analytics = save_analytics(db, target_date, modeling_result, df_filtered)
     
-    # 8. 정형 데이터 준비 (임시)
+    # 9. 정형 데이터 준비 (임시)
     filtered_data = pd.DataFrame()
     
-    # 9. 뉴스 압축
+    # 10. 뉴스 압축
     news_compact = build_compact_news_list(news_list, max_news=5)
     
-    # 10. 대응책 생성
+    # 11. 대응책 생성
     try:
         action_result = actiongenerator(
             date=date_str,
@@ -320,10 +378,10 @@ def run_full_pipeline(db: Session, target_datetime: datetime, json_path: str) ->
         print(f"Warning: 대응책 생성 실패 - {e}")
         action_dict = {"strategies": []}
     
-    # 11. strategies 저장
+    # 12. strategies 저장
     db_strategies = save_strategies(db, action_dict)
     
-    # 12. 리포트 생성
+    # 13. 리포트 생성
     try:
         report_html = reportgenerator(
             date=date_str,
@@ -349,8 +407,18 @@ def run_full_pipeline(db: Session, target_datetime: datetime, json_path: str) ->
         print(f"Warning: 리포트 생성 실패 - {e}")
         report_html = "<html><body><h1>Report Generation Failed</h1></body></html>"
     
-    # 12. report 저장
-    db_report = save_report(db, target_date, report_html, content_ids)
+    # 14. 카드뉴스 이미지 생성
+    card_images = []
+    try:
+        from app.ai.services.card2 import generate_top5_cards
+        card_result = generate_top5_cards(news_list)
+        card_images = [img["base64"] for img in card_result.get("card_images", [])]
+        print(f"Card images generated: {len(card_images)}")
+    except Exception as e:
+        print(f"Warning: 카드뉴스 생성 실패 - {e}")
+    
+    # 15. report 저장
+    db_report = save_report(db, target_date, report_html, content_ids, card_images)
     
     return {
         "analytics": db_analytics,

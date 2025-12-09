@@ -4,6 +4,8 @@ from app.routers import report_router
 from app.routers import dashboard_router
 import uvicorn
 from app.routers import analytics_router
+from app.routers import chroma_router
+from app.routers import financial_router
 from app.routers import admin
 from app.routers import notifications
 import os
@@ -31,9 +33,10 @@ app.add_middleware(
 app.include_router(report_router.router)
 app.include_router(dashboard_router.router)
 app.include_router(analytics_router.router)
+app.include_router(chroma_router.router)
 app.include_router(admin.router)
 app.include_router(notifications.router)
-
+app.include_router(financial_router.router)
 
 DB_USER = os.getenv("DB_USER")
 DB_PASSWORD = os.getenv("DB_PASSWORD")

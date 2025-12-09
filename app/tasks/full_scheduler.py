@@ -16,6 +16,7 @@ from app.crawlers.yahoo_crawling import YahooFinanceNewsScraper
 from app.db.database import SessionLocal
 from app.db.db_setting import Notification, User
 from app.services.ai_service import run_full_pipeline, load_news_from_json, save_contents, save_regions, update_region_scores, create_notification
+from app.services.weekly_service import generate_weekly_report
 
 # 로깅 설정
 logging.basicConfig(
@@ -95,37 +96,52 @@ def crawl_all_news():
     logger.info("크롤링 시작")
     logger.info("=" * 80)
     
-    with ThreadPoolExecutor(max_workers=4) as executor:
+    with ThreadPoolExecutor(max_workers=3) as executor:
         futures = {
-            'oilprice': executor.submit(run_single_crawler, run_oilprice, 2700),
-            'google': executor.submit(run_single_crawler, run_google, 2700),
-            'investing': executor.submit(run_single_crawler, run_investing, 2700),
-            'yahoo': executor.submit(run_single_crawler, run_yahoo, 2700),
+            'oilprice': executor.submit(run_single_crawler, run_oilprice, 600),
+            'google': executor.submit(run_single_crawler, run_google, 600),
+            # 'investing': executor.submit(run_single_crawler, run_investing, 600),  # 임시 비활성화
+            'yahoo': executor.submit(run_single_crawler, run_yahoo, 600),
         }
         
-        oilprice = futures['oilprice'].result()
-        google = futures['google'].result()
-        investing = futures['investing'].result()
-        yahoo = futures['yahoo'].result()
+        oilprice = futures['oilprice'].result(timeout=700)
+        google = futures['google'].result(timeout=700)
+        investing = []  # 임시로 빈 배열
+        yahoo = futures['yahoo'].result(timeout=700)
     
-    all_articles = oilprice + google + investing + yahoo
+    all_articles = []
+    for name, articles in [('oilprice', oilprice), ('google', google), ('investing', investing), ('yahoo', yahoo)]:
+        if articles:
+            all_articles.extend(articles)
+            logger.info(f"{name}: {len(articles)}개 수집")
     
     logger.info(f"총 {len(all_articles)}개 기사 수집")
     
     # JSON 저장
+    import os
     date_str = datetime.now().strftime('%Y%m%d')
-    json_path = f'app/ai/repository/data/news/news_{date_str}.json'
+    json_dir = 'app/ai/repository/data/news'
+    json_path = f'{json_dir}/news_{date_str}.json'
     
-    with open(json_path, 'w', encoding='utf-8') as f:
-        json.dump(all_articles, f, ensure_ascii=False, indent=2)
-    
-    logger.info(f"저장 완료: {json_path}")
+    try:
+        os.makedirs(json_dir, exist_ok=True)
+        logger.info(f"디렉토리 확인/생성: {json_dir}")
+        
+        with open(json_path, 'w', encoding='utf-8') as f:
+            json.dump(all_articles, f, ensure_ascii=False, indent=2)
+        
+        logger.info(f"JSON 저장 완료: {json_path} ({len(all_articles)}개 기사)")
+        
+    except Exception as e:
+        logger.error(f"JSON 저장 실패: {e}", exc_info=True)
+        raise
     
     return json_path, all_articles
 
 
 def save_hourly_contents(json_path):
     """1시간마다 크롤링 데이터를 contents에만 저장"""
+    import gc
     db = SessionLocal()
     
     try:
@@ -141,7 +157,9 @@ def save_hourly_contents(json_path):
         if raw_news and "summary_embedding" in raw_news[0]:
             news_list = raw_news
         else:
+            logger.info("뉴스 처리 시작 (메모리 집약적)")
             news_list = daily_news_data(raw_news)
+            gc.collect()  # 메모리 해제
         
         save_regions(db, news_list)
         saved_contents = save_contents(db, news_list)
@@ -167,12 +185,17 @@ def save_hourly_contents(json_path):
                         f"[알림 생성] user={user.id}, content={content.id}, score={score}"
                     )
 
+        # ChromaDB에 저장
+        from app.services.ai_service import save_to_chroma
+        save_to_chroma(news_list)
+        
         logger.info(f"Contents 저장 완료: {len(saved_contents)}개")
         
     except Exception as e:
         logger.error(f"Contents 저장 실패: {e}", exc_info=True)
     finally:
         db.close()
+        gc.collect()
 
 
 def run_ai_pipeline(json_path):
@@ -201,6 +224,7 @@ def run_ai_pipeline(json_path):
 
 def hourly_job():
     """1시간마다: 크롤링 → contents 저장"""
+    logger.info("=== hourly_job 시작 ===")
     try:
         json_path, articles = crawl_all_news()
         
@@ -208,16 +232,18 @@ def hourly_job():
             logger.warning("크롤링된 기사가 없습니다")
             return
         
+        logger.info(f"JSON 파일 경로: {json_path}")
         save_hourly_contents(json_path)
         
-        logger.info("시간별 크롤링 작업 완료")
+        logger.info("=== hourly_job 완료 ===")
         
     except Exception as e:
-        logger.error(f"시간별 작업 실패: {e}", exc_info=True)
+        logger.error(f"hourly_job 실패: {e}", exc_info=True)
 
 
 def daily_job():
     """24시간마다: 전체 AI 파이프라인 실행"""
+    logger.info("=== daily_job 시작 ===")
     try:
         import os
         date_str = datetime.now().strftime('%Y%m%d')
@@ -227,14 +253,36 @@ def daily_job():
             logger.error(f"24시간 데이터 파일 없음: {json_path}")
             return
         
+        logger.info(f"JSON 파일 발견: {json_path}")
         result = run_ai_pipeline(json_path)
         
         logger.info("=" * 80)
-        logger.info("일일 전체 파이프라인 완료")
+        logger.info("=== daily_job 완료 ===")
         logger.info("=" * 80)
         
     except Exception as e:
-        logger.error(f"일일 작업 실패: {e}", exc_info=True)
+        logger.error(f"daily_job 실패: {e}", exc_info=True)
+
+
+def weekly_job():
+    """매주 목요일: 7일치 데이터로 주간 리포트 생성"""
+    db = SessionLocal()
+    
+    try:
+        logger.info("=" * 80)
+        logger.info("주간 리포트 생성 시작")
+        logger.info("=" * 80)
+        
+        end_date = datetime.now()
+        weekly_report = generate_weekly_report(db, end_date)
+        
+        logger.info(f"주간 리포트 생성 완료: id={weekly_report.id}, "
+                   f"기간={weekly_report.start_date} ~ {weekly_report.end_date}")
+        
+    except Exception as e:
+        logger.error(f"주간 리포트 생성 실패: {e}", exc_info=True)
+    finally:
+        db.close()
 
 
 def main():
@@ -261,10 +309,21 @@ def main():
         coalesce=True
     )
     
+    # 매주 목요일 오전 1시: 주간 리포트 생성
+    scheduler.add_job(
+        weekly_job,
+        CronTrigger(day_of_week='thu', hour=1, minute=0),
+        id='weekly_report',
+        max_instances=1,
+        misfire_grace_time=3600,
+        coalesce=True
+    )
+    
     logger.info("통합 스케줄러 시작")
     logger.info(f"현재 시간: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    logger.info("- 매 시간 0분: 크롤링 + contents 저장")
+    logger.info("- 매 시간 0분: 크롤링 + contents 저장 + Chroma DB 저장")
     logger.info("- 매일 00:30: 전체 AI 파이프라인")
+    logger.info("- 매주 목요일 01:00: 주간 리포트 생성")
     
     try:
         scheduler.start()

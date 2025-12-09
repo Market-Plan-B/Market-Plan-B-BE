@@ -3,12 +3,19 @@ from sqlalchemy import (
     DateTime, Numeric, JSON, ForeignKey, func, Enum
 )
 from sqlalchemy.orm import declarative_base, relationship
+import os
+from dotenv import load_dotenv
 
+load_dotenv()
 # DATABASE_URL = "postgresql+psycopg2://postgres:postgres@localhost:5433/market-plan-b"
-DATABASE_URL = (
-    "postgresql+psycopg2://postgres:Skala25a!23$"
-    "@postgres-1-postgresql.postgres:5432/market-plan-b"
-)
+DB_USER = os.getenv("DB_USER", "postgres")
+DB_PASSWORD = os.getenv("DB_PASSWORD", "postgres")
+DB_HOST = os.getenv("DB_HOST", "localhost")
+DB_PORT = os.getenv("DB_PORT", "5432")
+DB_NAME = os.getenv("DB_NAME", "market-plan-b")
+
+DATABASE_URL = f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+
 Base = declarative_base()
 
 # ----------------------------
@@ -39,7 +46,7 @@ class Region(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String(100), nullable=False)
-    code = Column(String(10), unique=True, nullable=False)
+    code = Column(String(10), nullable=False)
     region_score = Column(Numeric(3, 2))
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
@@ -170,7 +177,7 @@ class Report(Base):
     start_date = Column(Date, nullable=False)  # 리포트 날짜
     end_date = Column(Date, nullable=False)  # 리포트 날짜 (start_date와 동일)
     html_content = Column(Text, nullable=False)  # AI 생성 HTML 리포트
-    images = Column(JSON, nullable=True)  # 리포트 이미지 데이터
+    images = Column(JSON, nullable=False)  # 카드뉴스 이미지 base64 배열 (daily만 사용)
     created_at = Column(DateTime, server_default=func.now())
 
     contents = relationship("ReportContent", back_populates="report", cascade="all, delete-orphan")
@@ -233,7 +240,7 @@ class CrawlingCategory(Base):
 # INIT DB
 # ----------------------------
 def init_db():
-    print("🔄 Connecting to PostgreSQL on localhost:5433 ...")
+    print(f"🔄 Connecting to PostgreSQL at {DB_HOST}:{DB_PORT}/{DB_NAME} ...")
     engine = create_engine(DATABASE_URL, echo=True)
     Base.metadata.create_all(engine)
     print("✅ Tables created successfully!")
