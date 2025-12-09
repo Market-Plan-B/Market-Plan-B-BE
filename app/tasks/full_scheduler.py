@@ -14,7 +14,8 @@ from app.crawlers.google_crawling import get_latest_google_news
 from app.crawlers.investing_crawling import crawl_brent_news_hourly
 from app.crawlers.yahoo_crawling import YahooFinanceNewsScraper
 from app.db.database import SessionLocal
-from app.services.ai_service import run_full_pipeline, load_news_from_json, save_contents, save_regions, update_region_scores
+from app.db.db_setting import Notification, User
+from app.services.ai_service import run_full_pipeline, load_news_from_json, save_contents, save_regions, update_region_scores, create_notification
 from app.services.weekly_service import generate_weekly_report
 
 # 로깅 설정
@@ -163,7 +164,27 @@ def save_hourly_contents(json_path):
         save_regions(db, news_list)
         saved_contents = save_contents(db, news_list)
         update_region_scores(db, news_list)
+
+        impact_threshold = 0.8
+
+        users = db.query(User).all()
         
+        news_map = { n.get("url"): n for n in news_list }
+
+        for content in saved_contents:
+            try:
+                score = float(content.source_score)
+            except Exception as e:
+                logger.error(f"[SCORE ERROR] invalid score: {content.source_score} ({e})")
+                continue
+
+            if score >= impact_threshold:
+                for user in users:
+                    create_notification(db, user.id, content.id)
+                    logger.info(
+                        f"[알림 생성] user={user.id}, content={content.id}, score={score}"
+                    )
+
         # ChromaDB에 저장
         from app.services.ai_service import save_to_chroma
         save_to_chroma(news_list)

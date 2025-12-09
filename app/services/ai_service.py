@@ -15,6 +15,7 @@ from app.ai.nodes.actiongenerator import actiongenerator
 from app.ai.nodes.reportgenerator import reportgenerator
 
 from app.db.db_setting import Analytics, RecommendedStrategy, Report, Content, Region, ReportContent
+from app.db.db_setting import Notification
 from app.services.chroma_service import chroma_service
 
 # ISO 국가 코드 매핑
@@ -425,3 +426,17 @@ def run_full_pipeline(db: Session, target_datetime: datetime, json_path: str) ->
         "report": db_report,
         "contents": saved_contents
     }
+
+
+def create_notification(db, user_id: int, content_id: int):
+    notif = Notification(
+        user_id=user_id,
+        content_id=content_id,
+        is_read=False,
+        read_at=None,
+        created_at=datetime.utcnow()
+    )
+    db.add(notif)
+    db.commit()
+    db.refresh(notif)
+    return notif
