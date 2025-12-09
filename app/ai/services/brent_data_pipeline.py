@@ -156,4 +156,4 @@ def build_full_dataset(
     # -----------------------------------------
     # df_final = df_final.drop(columns=["date"])
     
-    return df_final
+    return df_final, news_df[["cluster_km"]]
