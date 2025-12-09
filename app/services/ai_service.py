@@ -14,7 +14,7 @@ from app.ai.services.unstructured_summary import daily_news_data
 from app.ai.nodes.actiongenerator import actiongenerator
 from app.ai.nodes.reportgenerator import reportgenerator
 
-from app.db.db_setting import Analytics, RecommendedStrategy, Report, Content, Region, ReportContent
+from app.db.db_setting import Analytics, RecommendedStrategy, Report, Content, Region, ReportContent, ContentRegion
 from app.services.chroma_service import chroma_service
 
 # ISO 국가 코드 매핑
@@ -104,7 +104,7 @@ def save_analytics(db: Session, target_date: date, prediction_result: dict, df: 
 
 
 def save_contents(db: Session, news_list: list) -> list:
-    """contents 테이블 저장"""
+    """contents 테이블 저장 + contents_regions 연결"""
     saved_contents = []
     
     for news in news_list:
@@ -125,6 +125,30 @@ def save_contents(db: Session, news_list: list) -> list:
         )
         
         db.add(db_content)
+        db.flush()  # content.id 생성
+        
+        # contents_regions 연결
+        relation_nations = news.get("relation_nation", [])
+        if isinstance(relation_nations, list):
+            for item in relation_nations:
+                if isinstance(item, dict):
+                    country_name = item.get("name")
+                    if country_name:
+                        region = db.query(Region).filter(Region.name == country_name).first()
+                        if region:
+                            # 중복 체크
+                            existing_link = db.query(ContentRegion).filter(
+                                ContentRegion.content_id == db_content.id,
+                                ContentRegion.region_id == region.id
+                            ).first()
+                            
+                            if not existing_link:
+                                content_region = ContentRegion(
+                                    content_id=db_content.id,
+                                    region_id=region.id
+                                )
+                                db.add(content_region)
+        
         saved_contents.append(db_content)
     
     db.commit()
