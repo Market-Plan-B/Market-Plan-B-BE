@@ -140,6 +140,7 @@ def crawl_all_news():
 
 def save_hourly_contents(json_path):
     """1시간마다 크롤링 데이터를 contents에만 저장"""
+    import gc
     db = SessionLocal()
     
     try:
@@ -155,7 +156,9 @@ def save_hourly_contents(json_path):
         if raw_news and "summary_embedding" in raw_news[0]:
             news_list = raw_news
         else:
+            logger.info("뉴스 처리 시작 (메모리 집약적)")
             news_list = daily_news_data(raw_news)
+            gc.collect()  # 메모리 해제
         
         save_regions(db, news_list)
         saved_contents = save_contents(db, news_list)
@@ -171,6 +174,7 @@ def save_hourly_contents(json_path):
         logger.error(f"Contents 저장 실패: {e}", exc_info=True)
     finally:
         db.close()
+        gc.collect()
 
 
 def run_ai_pipeline(json_path):

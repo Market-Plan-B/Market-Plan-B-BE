@@ -54,10 +54,10 @@ def get_driver():
     options.add_argument("--disable-gpu")
     return webdriver.Chrome(options=options)
 
-driver = get_driver()
+driver = None
 
 # Google redirect → 실제 URL
-def extract_real_url(google_url):
+def extract_real_url(google_url, driver):
     try:
         driver.get(google_url)
         time.sleep(1)
@@ -72,13 +72,13 @@ def extract_real_url(google_url):
 
 
 # 기사 본문 및 발행시간 추출
-def extract_content_and_date(url):
+def extract_content_and_date(url, driver=None):
     try:
         res = requests.get(url, headers=HEADERS, timeout=10)
         soup = BeautifulSoup(res.text, "html.parser")
 
         # 콘텐츠 추출을 위한 Selenium 사용 
-        if len(soup.get_text(strip=True)) < 300:
+        if driver and len(soup.get_text(strip=True)) < 300:
             try:
                 driver.get(url)
                 time.sleep(2)
@@ -132,7 +132,7 @@ def extract_content_and_date(url):
                         continue
         
         # 4. Selenium으로 다시 시도 (시간 정보가 없을 때)
-        if not actual_date and len(soup.get_text(strip=True)) < 300:
+        if driver and not actual_date and len(soup.get_text(strip=True)) < 300:
             try:
                 driver.get(url)
                 time.sleep(3)
@@ -180,7 +180,7 @@ def extract_content_and_date(url):
 
 
 # 하나의 키워드에 대한 크롤링
-def crawl_google_news(keyword, seen_urls):
+def crawl_google_news(keyword, seen_urls, driver):
     encoded = requests.utils.quote(keyword)
     feed_url = f"https://news.google.com/rss/search?q={encoded}&hl=en&gl=US&ceid=US:en"
 
@@ -200,7 +200,7 @@ def crawl_google_news(keyword, seen_urls):
         if not is_within_last_hour(pub_date):
             continue
 
-        real_url = extract_real_url(entry.link)
+        real_url = extract_real_url(entry.link, driver)
         if not real_url:
             continue
 
@@ -210,7 +210,7 @@ def crawl_google_news(keyword, seen_urls):
         seen_urls.add(real_url)
         print(f"[NEW URL] 새로운 URL 추가: {real_url}")
 
-        content, actual_date = extract_content_and_date(real_url)
+        content, actual_date = extract_content_and_date(real_url, driver)
         if not content:
             continue
 
@@ -244,8 +244,10 @@ def crawl_google_news(keyword, seen_urls):
 
 
 def get_latest_google_news():
+    driver = get_driver()
     
-    keywords = [
+    try:
+        keywords = [
        # Oil & Refining Market
     "crude oil market outlook OR refining industry trends",
     "oil price forecast OR Brent oil OR Dubai oil OR WTI price trends",
@@ -278,21 +280,24 @@ def get_latest_google_news():
     "oil demand forecast OR business cycle OR economic recovery",
     ]
 
-    seen_urls = set()  # 전체 키워드에서 공유
-    all_results = []
+        seen_urls = set()  # 전체 키워드에서 공유
+        all_results = []
 
-    for i, kw in enumerate(keywords, 1):
-        print(f"\n[KEYWORD {i}/{len(keywords)}] {kw}")
-        print(f"[SEEN_URLS] 현재 {len(seen_urls)}개 URL 저장됨")
-        
-        keyword_results = crawl_google_news(kw, seen_urls)
-        all_results.extend(keyword_results)
-        
-        print(f"[KEYWORD RESULT] {len(keyword_results)}개 기사 수집")
-        print(f"[TOTAL SEEN] 누적 {len(seen_urls)}개 URL")
+        for i, kw in enumerate(keywords, 1):
+            print(f"\n[KEYWORD {i}/{len(keywords)}] {kw}")
+            print(f"[SEEN_URLS] 현재 {len(seen_urls)}개 URL 저장됨")
+            
+            keyword_results = crawl_google_news(kw, seen_urls, driver)
+            all_results.extend(keyword_results)
+            
+            print(f"[KEYWORD RESULT] {len(keyword_results)}개 기사 수집")
+            print(f"[TOTAL SEEN] 누적 {len(seen_urls)}개 URL")
 
-    print(f"\n⏱ 최근 1시간 기사 수집 완료: {len(all_results)}개")
-    return all_results
+        print(f"\n⏱ 최근 1시간 기사 수집 완료: {len(all_results)}개")
+        return all_results
+    finally:
+        if driver:
+            driver.quit()
 
 
 if __name__ == "__main__":
