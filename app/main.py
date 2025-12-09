@@ -5,6 +5,7 @@ from app.routers import dashboard_router
 import uvicorn
 from app.routers import analytics_router
 from app.routers import admin
+from app.routers import notifications
 import os
 from dotenv import load_dotenv
 
@@ -31,6 +32,8 @@ app.include_router(report_router.router)
 app.include_router(dashboard_router.router)
 app.include_router(analytics_router.router)
 app.include_router(admin.router)
+app.include_router(notifications.router)
+
 
 DB_USER = os.getenv("DB_USER")
 DB_PASSWORD = os.getenv("DB_PASSWORD")
