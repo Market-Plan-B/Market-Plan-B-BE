@@ -342,7 +342,7 @@ def run_full_pipeline(db: Session, target_datetime: datetime, json_path: str) ->
     update_region_scores(db, news_list)
     
     # 7. 모델링 실행
-    df = build_full_dataset(news=news_list)
+    df, _ = build_full_dataset(news=news_list)
     if not isinstance(df.index, pd.DatetimeIndex):
         df.index = pd.to_datetime(df.index)
     df_filtered = df.tail(60) if len(df) > 60 else df
