@@ -76,25 +76,30 @@ def _format_chroma_results(raw: Dict[str, Any]) -> List[Dict[str, Any]]:
     ChromaDB / VDB query 결과를 간단한 리스트로 변환한다.
 
     VDB 문서 구조 가정:
-    - document: 뉴스 원문 또는 요약 텍스트
     - metadata:
         - "cluster_id": int (예: 2)
         - "published": str (예: "2025-11-30")
-        - 그 외 필요한 필드들
+        - "summary": str (뉴스 요약)
+        - "title": str (선택)
+        - "url": str (선택)
     """
-    ids = raw.get("ids", [[]])[0]
-    docs = raw.get("documents", [[]])[0]
-    dists = raw.get("distances", [[]])[0]
-    metas = raw.get("metadatas", [[]])[0]
+    ids = (raw.get("ids") or [[]])[0]
+    dists = (raw.get("distances") or [[]])[0]
+    metas = (raw.get("metadatas") or [[]])[0]
 
     results: List[Dict[str, Any]] = []
     for i in range(len(ids)):
+        meta = metas[i] or {}
         results.append(
             {
                 "id": ids[i],
                 "distance": float(dists[i]),
-                "document": docs[i],
-                "metadata": metas[i],
+                "summary": meta.get("summary"),
+                "title": meta.get("title"),
+                "url": meta.get("url"),
+                "cluster_id": meta.get("cluster_id"),
+                "published": meta.get("published"),
+                "metadata": meta,
             }
         )
     return results
@@ -114,7 +119,6 @@ def _build_where_filter(
     where: Dict[str, Any] = {}
 
     if cluster_id is not None:
-        # 메타데이터에 int로 들어가 있으므로 가급적 int로 맞춤
         if isinstance(cluster_id, str) and cluster_id.isdigit():
             where["cluster_id"] = int(cluster_id)
         else:
@@ -143,8 +147,7 @@ def _run_news_rag_core(
 ) -> List[Dict[str, Any]]:
     """
     실제 Chroma 컬렉션에 쿼리 날리는 코어 함수.
-    - 컬렉션에는 64차원 summary_embedding이 저장되어 있음
-    - 여기서도 CrudeBERT(768) → 고정 랜덤프로젝션(64)로 맞춰서 쿼리
+    - 컬렉션에는 CrudeBERT+프로젝션으로 만든 summary_embedding이 저장되어 있음
     """
     where = _build_where_filter(
         cluster_id=cluster_id,
@@ -178,7 +181,8 @@ def run_news_rag(
     end_date: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """
-    비슷한 내용을 가진 뉴스를 VDB(ChromaDB)에서 검색하는 툴.
+    비슷한 내용을 가진 뉴스를 VDB(ChromaDB)에서 검색하고,
+    메타데이터에 저장된 summary/title/url 등을 그대로 반환하는 툴.
 
     파라미터:
     - query: 유저 질문/문장 (요약 텍스트 기준 검색)
@@ -189,20 +193,23 @@ def run_news_rag(
     반환:
     - [
         {
-          "id": str,
-          "distance": float,
-          "document": str,
-          "metadata": {
-              "cluster_id": ...,
-              "published": ...,
-              ...
-          }
+          "id": str,              # Chroma 내부 문서 id
+          "distance": float,      # 벡터 유사도 거리
+          "summary": str | None,  # 뉴스 요약 (metadata.summary)
+          "title": str | None,    # 선택
+          "url": str | None,      # 선택
+          "cluster_id": ...,
+          "published": ...,
+          "metadata": {...},
         },
         ...
       ]
     """
     collection = chroma_service.collection
-    return _run_news_rag_core(
+    print("[DEBUG] collection count:", collection.count())
+
+    # 1) Chroma RAG 검색 (PostgreSQL 연동 없이 바로 사용)
+    rag_results = _run_news_rag_core(
         query=query,
         collection=collection,
         top_k=top_k,
@@ -210,3 +217,5 @@ def run_news_rag(
         start_date=start_date,
         end_date=end_date,
     )
+
+    return rag_results

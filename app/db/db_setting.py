@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 # DATABASE_URL = "postgresql+psycopg2://postgres:postgres@localhost:5433/market-plan-b"
+
 DB_USER = os.getenv("DB_USER", "postgres")
 DB_PASSWORD = os.getenv("DB_PASSWORD", "postgres")
 DB_HOST = os.getenv("DB_HOST", "localhost")
@@ -240,11 +241,13 @@ class CrawlingCategory(Base):
 # INIT DB
 # ----------------------------
 def init_db():
-    print(f"🔄 Connecting to PostgreSQL at {DB_HOST}:{DB_PORT}/{DB_NAME} ...")
+    print(f" Connecting to PostgreSQL at {DB_HOST}:{DB_PORT}/{DB_NAME} ...")
     engine = create_engine(DATABASE_URL, echo=True)
     Base.metadata.create_all(engine)
-    print("✅ Tables created successfully!")
+    print(" Tables created successfully!")
 
 
 if __name__ == "__main__":
     init_db()
+
+
