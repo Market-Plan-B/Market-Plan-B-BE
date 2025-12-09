@@ -264,12 +264,15 @@ def save_strategies(db: Session, action_content: dict) -> list:
     return saved_strategies
 
 
-def save_report(db: Session, target_date: date, report_html: str, content_ids: list) -> Report:
+def save_report(db: Session, target_date: date, report_html: str, content_ids: list, card_images: list = None) -> Report:
     """reports 테이블 저장"""
     # HTML body 내부만 추출
     import re
     body_match = re.search(r'<body[^>]*>(.*?)</body>', report_html, re.DOTALL | re.IGNORECASE)
     body_content = body_match.group(1) if body_match else report_html
+    
+    if card_images is None:
+        card_images = []
     
     existing = db.query(Report).filter(
         Report.report_type == 'daily',
@@ -278,6 +281,7 @@ def save_report(db: Session, target_date: date, report_html: str, content_ids: l
     
     if existing:
         existing.html_content = body_content
+        existing.images = card_images
         db.commit()
         db.refresh(existing)
         report = existing
@@ -286,7 +290,8 @@ def save_report(db: Session, target_date: date, report_html: str, content_ids: l
             report_type='daily',
             start_date=target_date,
             end_date=target_date,
-            html_content=body_content
+            html_content=body_content,
+            images=card_images
         )
         db.add(db_report)
         db.commit()
@@ -401,8 +406,18 @@ def run_full_pipeline(db: Session, target_datetime: datetime, json_path: str) ->
         print(f"Warning: 리포트 생성 실패 - {e}")
         report_html = "<html><body><h1>Report Generation Failed</h1></body></html>"
     
-    # 14. report 저장
-    db_report = save_report(db, target_date, report_html, content_ids)
+    # 14. 카드뉴스 이미지 생성
+    card_images = []
+    try:
+        from app.ai.services.card2 import generate_top5_cards
+        card_result = generate_top5_cards(news_list)
+        card_images = [img["base64"] for img in card_result.get("card_images", [])]
+        print(f"Card images generated: {len(card_images)}")
+    except Exception as e:
+        print(f"Warning: 카드뉴스 생성 실패 - {e}")
+    
+    # 15. report 저장
+    db_report = save_report(db, target_date, report_html, content_ids, card_images)
     
     return {
         "analytics": db_analytics,
