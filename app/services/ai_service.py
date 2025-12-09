@@ -79,7 +79,7 @@ def save_analytics(db: Session, target_date: date, prediction_result: dict, df: 
     
     structured_features = {}
     for col in df.columns:
-        if col not in ['brent_close', 'wti_close']:
+        if col not in ['brent_close', 'wti_close', 'date']:
             structured_features[col] = df[col].tail(1).tolist()
     
     existing = db.query(Analytics).filter(Analytics.date == target_date).first()
