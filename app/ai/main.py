@@ -50,7 +50,7 @@ def daily_modeling(news_list):
 
     """
     print("STEP 1: Building dataset (raw + cluster)...")
-    df0 = build_full_dataset(news=news_list)
+    df0, news_clusters = build_full_dataset(news=news_list)
 
     print("STEP 2: Refining dataset (news impact)...")
     df1 = unstructure_refine(df0)

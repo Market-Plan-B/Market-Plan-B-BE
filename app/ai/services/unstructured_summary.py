@@ -1,3 +1,5 @@
+#unstructured_summary.py
+
 import json
 import numpy as np
 import uuid
@@ -127,7 +129,7 @@ def get_brent_prices(event_date_str):
     end   = (event_date + timedelta(days=3)).strftime("%Y-%m-%d")
 
 
-    df = yf.download("BZ=F", start=start, end=end, auto_adjust=True, progress=False)
+    df = yf.download("BZ=F", start=start, end=end)
 
     if df.empty:
         print("⚠ Yahoo Finance 데이터 없음")
@@ -139,11 +141,11 @@ def get_brent_prices(event_date_str):
 
     def get_close(date):
         if date in df.index:
-            return float(df.loc[date]["Close"].iloc[0]) if hasattr(df.loc[date]["Close"], 'iloc') else float(df.loc[date]["Close"])
+            return float(df.loc[date]["Close"])
         else:
             valid_days = df.index[df.index <= date]
             if len(valid_days):
-                return float(df.loc[valid_days[-1]]["Close"].iloc[0]) if hasattr(df.loc[valid_days[-1]]["Close"], 'iloc') else float(df.loc[valid_days[-1]]["Close"])
+                return float(df.loc[valid_days[-1]]["Close"])
             return None
 
     prev_close = get_close(prev_day)
@@ -396,22 +398,23 @@ def analyze_article(article_data: dict, client):
             "summary": analysis.get("summary", ""),
             "sentiment": analysis.get("sentiment", {"explanation": "", "score": 0.5}),
             "trust": analysis.get("trust", {"explanation": "", "score": 0.5, "reliable": True}),
-            "relation_nation": relation_nation,
+            "relation_nation": analysis.get("relation_nation", []),
             "daily_change_pct": daily_change_pct
         }
-        # relation_nation 검증 및 기본값 설정
-        relation_nation = analysis.get("relation_nation", [])
-        if not relation_nation or len(relation_nation) == 0:
-            relation_nation = [{"name": "United States", "code": "USA"}]
+        if not result["summary"] or result["summary"] == "":
+            result["summary"] = "요약 정보 없음"
+        if not result["relation_nation"] or len(result["relation_nation"]) == 0:
+            result["relation_nation"] = [{"name": "United States", "code": "USA"}]
         else:
+            # 각 국가 객체가 name과 code를 모두 가지고 있는지 검증
             validated_nations = []
-            for nation in relation_nation:
+            for nation in result["relation_nation"]:
                 if isinstance(nation, dict) and "name" in nation and "code" in nation:
                     validated_nations.append(nation)
             if not validated_nations:
-                relation_nation = [{"name": "United States", "code": "USA"}]
+                result["relation_nation"] = [{"name": "United States", "code": "USA"}]
             else:
-                relation_nation = validated_nations
+                result["relation_nation"] = validated_nations
         if not isinstance(result.get("sentiment"), dict):
             result["sentiment"] = {
                 "explanation": "감성 분석 정보를 제대로 받지 못해 기본값을 사용함.",
@@ -495,8 +498,8 @@ def generate_summary_embeddings(
     tokenizer,
     model,
     output_file,
-    umap_path=None,
-    kmeans_path=None,
+    umap_path=r"app\ai\repository\structured_params\model_weight\umap_64to20.model",
+    kmeans_path=r"app\ai\repository\structured_params\model_weight\kmeans_20d_30clusters.model",
 ):
     embeddings_768 = []
     valid_indices = []
@@ -548,18 +551,6 @@ def generate_summary_embeddings(
     # --------------------------
     # 4차: UMAP + KMeans → cluster_id만 저장
     # --------------------------
-    # 경로 설정 (크로스 플랫폼)
-    if umap_path is None:
-        umap_path = os.path.join("app", "ai", "repository", "structured_params", "model_weight", "umap_64to20.model")
-    if kmeans_path is None:
-        kmeans_path = os.path.join("app", "ai", "repository", "structured_params", "model_weight", "kmeans_20d_30clusters.model")
-    
-    # 경로 설정 (크로스 플랫폼)
-    if umap_path is None:
-        umap_path = os.path.join("app", "ai", "repository", "structured_params", "model_weight", "umap_64to20.model")
-    if kmeans_path is None:
-        kmeans_path = os.path.join("app", "ai", "repository", "structured_params", "model_weight", "kmeans_20d_30clusters.model")
-    
     emb_list = []
     idx_list = []
     for i, article in enumerate(articles):
@@ -583,11 +574,10 @@ def generate_summary_embeddings(
         # 각 기사 dict에 cluster_id만 부여
         for j, art_idx in enumerate(idx_list):
             articles[art_idx]["cluster_id"] = int(km_labels[j])
-    
-    # 임베딩이 없거나 클러스터링되지 않은 기사는 -1로 채움
-    for i, art in enumerate(articles):
-        if "cluster_id" not in art:
-            art["cluster_id"] = -1
+    else:
+        # 임베딩이 없다면 -1로 채움
+        for art in articles:
+            articles["cluster_id"] = -1
     # --------------------------
     # 5차: 파일(JSON) 저장
     # --------------------------
@@ -634,14 +624,15 @@ def daily_news_data(news_data):
         output_emb_file
     )
     # 10) 정형 데이터 + 클러스터링 통합
-    df_final = build_full_dataset(
+    df_final, news_clusters= build_full_dataset(
         final_articles,
         start="2013-09-01",
         end=None,
         target_horizon=5,
         max_cluster=30
     )
-
+    for i, art in enumerate(final_articles):
+        art["cluster_km"] = int(news_clusters.iloc[i]["cluster_km"])
 
     
     # os.makedirs("images", exist_ok=True)

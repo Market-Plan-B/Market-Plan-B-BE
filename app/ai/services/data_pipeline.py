@@ -404,13 +404,29 @@ def build_eia_weekly(end_date: str, eia_objs: dict) -> dict:
 # 2. COT (CFTC) WTI 포지션
 # ------------------------------
 
-def load_cot_raw_for_report(end_date: str, years_back: int = 3) -> pd.DataFrame:
+def load_cot_raw_for_report(
+    end_date: str,
+    years_back: int = 3,
+    start_year: int | None = 2025,
+) -> pd.DataFrame:
     """
     end_date 기준 최근 years_back년만 다운로드.
+    - start_year를 직접 줄 수도 있음 (기본 2025, 최소 2013년).
     """
     end = pd.to_datetime(end_date)
     end_year = end.year
-    start_year = 2025
+
+    # start_year를 안 주면(end_year, years_back 기반으로 계산)
+    if start_year is None:
+        start_year = end_year - years_back + 1
+
+    # 최소 2013년 이후로 보정
+    if start_year < 2013:
+        start_year = 2013
+
+    # end_year보다 클 수 없도록 보정
+    if start_year > end_year:
+        start_year = end_year
 
     base_url = "https://www.cftc.gov/files/dea/history/fut_disagg_txt_{}.zip"
     all_df: list[pd.DataFrame] = []
