@@ -382,9 +382,6 @@ def run_full_pipeline(db: Session, target_datetime: datetime, json_path: str) ->
     # 8. analytics 저장
     db_analytics = save_analytics(db, target_date, modeling_result, df_filtered)
     
-    # 9. 정형 데이터 준비 (임시)
-    filtered_data = pd.DataFrame()
-    
     # 10. 뉴스 압축
     news_compact = build_compact_news_list(news_list, max_news=5)
     
@@ -392,7 +389,7 @@ def run_full_pipeline(db: Session, target_datetime: datetime, json_path: str) ->
     try:
         action_result = actiongenerator(
             date=date_str,
-            structured_data=filtered_data,
+            structured_data=df_refined,
             model_prediction=modeling_result["prediction"],
             xai_result=modeling_result["xai"],
             unstructured_data=news_compact
@@ -409,7 +406,7 @@ def run_full_pipeline(db: Session, target_datetime: datetime, json_path: str) ->
     try:
         report_html = reportgenerator(
             date=date_str,
-            structured_data=filtered_data,
+            structured_data=df_refined,
             model_prediction=modeling_result["prediction"],
             xai_result=modeling_result["xai"],
             unstructured_data=news_compact,
