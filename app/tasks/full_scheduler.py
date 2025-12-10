@@ -158,36 +158,57 @@ def save_hourly_contents(json_path):
             news_list = raw_news
         else:
             logger.info("뉴스 처리 시작 (메모리 집약적)")
-            news_list = daily_news_data(raw_news)
-            gc.collect()  # 메모리 해제
-        
-        save_regions(db, news_list)
-        saved_contents = save_contents(db, news_list)
-        update_region_scores(db, news_list)
-
-        impact_threshold = 0.8
-
-        users = db.query(User).all()
-        
-        news_map = { n.get("url"): n for n in news_list }
-
-        for content in saved_contents:
             try:
-                score = float(content.source_score)
+                news_list = daily_news_data(raw_news)
             except Exception as e:
-                logger.error(f"[SCORE ERROR] invalid score: {content.source_score} ({e})")
-                continue
+                logger.error(f"뉴스 처리 실패: {e}", exc_info=True)
+                return
+            gc.collect()
+        
+        try:
+            save_regions(db, news_list)
+        except Exception as e:
+            logger.error(f"Region 저장 실패: {e}", exc_info=True)
+        
+        try:
+            saved_contents = save_contents(db, news_list)
+        except Exception as e:
+            logger.error(f"Content 저장 실패: {e}", exc_info=True)
+            saved_contents = []
+        
+        try:
+            update_region_scores(db, news_list)
+        except Exception as e:
+            logger.error(f"Region 점수 업데이트 실패: {e}", exc_info=True)
 
-            if score >= impact_threshold:
-                for user in users:
-                    create_notification(db, user.id, content.id)
-                    logger.info(
-                        f"[알림 생성] user={user.id}, content={content.id}, score={score}"
-                    )
+        # 알림 생성
+        try:
+            impact_threshold = 0.8
+            users = db.query(User).all()
+            
+            for content in saved_contents:
+                try:
+                    score = float(content.source_score)
+                except Exception as e:
+                    logger.error(f"[SCORE ERROR] invalid score: {content.source_score} ({e})")
+                    continue
+
+                if score >= impact_threshold:
+                    for user in users:
+                        try:
+                            create_notification(db, user.id, content.id)
+                            logger.info(f"[알림 생성] user={user.id}, content={content.id}, score={score}")
+                        except Exception as e:
+                            logger.error(f"알림 생성 실패: {e}")
+        except Exception as e:
+            logger.error(f"알림 처리 실패: {e}", exc_info=True)
 
         # ChromaDB에 저장
-        from app.services.ai_service import save_to_chroma
-        save_to_chroma(news_list)
+        try:
+            from app.services.ai_service import save_to_chroma
+            save_to_chroma(news_list)
+        except Exception as e:
+            logger.error(f"ChromaDB 저장 실패: {e}", exc_info=True)
         
         logger.info(f"Contents 저장 완료: {len(saved_contents)}개")
         
@@ -216,7 +237,6 @@ def run_ai_pipeline(json_path):
         
     except Exception as e:
         logger.error(f"AI 파이프라인 실패: {e}", exc_info=True)
-        raise
         
     finally:
         db.close()
