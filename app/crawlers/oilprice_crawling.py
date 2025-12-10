@@ -79,7 +79,7 @@ def is_within_last_hour(kst_dt):
     if not kst_dt:
         return False
     now = datetime.now(KST)
-    start_kst = now - timedelta(hours=1)
+    start_kst = now - timedelta(hours=24)
     
     
     result = start_kst <= kst_dt <= now
