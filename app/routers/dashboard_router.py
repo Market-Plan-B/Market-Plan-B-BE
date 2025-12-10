@@ -17,6 +17,12 @@ from datetime import datetime, date
 from sqlalchemy import func
 from sqlalchemy import Date
 import json
+import os
+import httpx
+
+EIA_API_KEY = os.getenv("EIA_API_KEY")
+EIA_BASE = "https://api.eia.gov/v2"
+
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
@@ -138,3 +144,178 @@ async def get_strategies(db: Session = Depends(get_db)):
             for strategy in strategies
         ]
     )
+
+
+# EIA API
+US_CRUDE_SERIES = "WTTSTUS1"   # Weekly Total Stocks - United States
+
+
+@router.get("/us-stocks")
+async def get_us_crude_stocks():
+    """
+    미국 원유 재고 (EIA Weekly) 최신치 + 전주치 + 5년치(260주) 히스토리 제공
+    """
+
+    rows = await fetch_eia(
+        f"{EIA_BASE}/petroleum/stoc/wstk/data/",
+        {
+            "frequency": "weekly",
+            "data[0]": "value",
+            "facets[series][]": US_CRUDE_SERIES,
+            "sort[0][column]": "period",
+            "sort[0][direction]": "desc",
+            "length": "260",  # 5년치
+        }
+    )
+
+    # 데이터 없음
+    if not rows:
+        return {
+            "latest": None,
+            "prev": None,
+            "period": None,
+            "history": []
+        }
+
+    # 최신/전주 재고
+    latest_row = rows[0]
+    prev_row = rows[1] if len(rows) > 1 else None
+
+    latest_value = float(latest_row["value"])
+    prev_value = float(prev_row["value"]) if prev_row else None
+    latest_period = latest_row["period"]
+
+    # 히스토리(오래된 순으로)
+    history = [
+        {"period": r["period"], "value": float(r["value"])}
+        for r in reversed(rows)
+    ]
+
+    return {
+        "latest": latest_value,
+        "prev": prev_value,
+        "period": latest_period,
+        "history": history
+    }
+
+OECD_TOTAL_SERIES = "WCSSTUS1"
+
+PRODUCER_META = {
+    "Saudi Arabia": {"code": "SAU", "iso": "SAU", "lat": 24, "lon": 45, "group": "OPEC+", "rank": 1},
+    "Russia": {"code": "RUS", "iso": "RUS", "lat": 60, "lon": 90, "group": "OPEC+", "rank": 2},
+    "United States": {"code": "USA", "iso": "USA", "lat": 38, "lon": -97, "group": "Non-OPEC", "rank": 3},
+    "Iran": {"code": "IRN", "iso": "IRN", "lat": 32, "lon": 53, "group": "OPEC+", "rank": 4},
+    "Iraq": {"code": "IRQ", "iso": "IRQ", "lat": 33, "lon": 44, "group": "OPEC+", "rank": 5},
+    "UAE": {"code": "ARE", "iso": "ARE", "lat": 24, "lon": 54, "group": "OPEC+", "rank": 6},
+}
+
+
+def calc_avg(values):
+    return sum(values) / len(values) if values else None
+
+
+async def fetch_eia(url: str, params: dict) -> list:
+    if not EIA_API_KEY:
+        raise HTTPException(500, "EIA_API_KEY not configured")
+    
+    params["api_key"] = EIA_API_KEY
+    async with httpx.AsyncClient(timeout=15) as client:
+        res = await client.get(url, params=params)
+    
+    if res.status_code != 200:
+        return []
+    
+    return res.json().get("response", {}).get("data", [])
+
+
+@router.get("/oecd-inventory")
+async def get_oecd_inventory():
+    rows = await fetch_eia(
+        f"{EIA_BASE}/petroleum/stoc/wstk/data/",
+        {
+            "frequency": "weekly",
+            "data[0]": "value",
+            "facets[series][]": OECD_TOTAL_SERIES,
+            "sort[0][column]": "period",
+            "sort[0][direction]": "desc",
+            "length": "260",
+        }
+    )
+
+    if not rows:
+        return {"regions": [], "globalStockDiffPct": None, "globalDaysDiff": None}
+
+    latest = float(rows[0]["value"])
+    values = [float(r["value"]) for r in rows]
+    five_year_avg = calc_avg(values)
+    
+    daily_use = 45.0
+    stocks_diff_pct = (latest - five_year_avg) / five_year_avg * 100 if five_year_avg else None
+    days_of_supply = latest / daily_use
+    days_of_supply_5yr = five_year_avg / daily_use if five_year_avg else None
+    days_diff = days_of_supply - days_of_supply_5yr if days_of_supply_5yr else None
+
+    return {
+        "regions": [{
+            "code": "OECD",
+            "name": "OECD Total",
+            "stocksMbbl": round(latest, 1),
+            "stocksDiffPct": round(stocks_diff_pct, 1) if stocks_diff_pct else None,
+            "daysOfSupply": round(days_of_supply, 1),
+            "daysDiff": round(days_diff, 1) if days_diff else None
+        }],
+        "globalStockDiffPct": round(stocks_diff_pct, 1) if stocks_diff_pct else None,
+        "globalDaysDiff": round(days_diff, 1) if days_diff else None
+    }
+
+
+@router.get("/supply-monitor")
+async def get_supply_monitor():
+    producers = []
+
+    for name, meta in PRODUCER_META.items():
+        rows = await fetch_eia(
+            f"{EIA_BASE}/international/data/",
+            {
+                "frequency": "monthly",
+                "data[0]": "value",
+                "facets[countryRegionId][]": meta["iso"],
+                "facets[productId][]": "55",
+                "facets[activityId][]": "1",
+                "sort[0][column]": "period",
+                "sort[0][direction]": "desc",
+                "length": "24",
+            }
+        )
+
+        if len(rows) < 13:
+            continue
+
+        try:
+            latest = float(rows[0]["value"]) / 1000
+            last_year = float(rows[12]["value"]) / 1000
+            yoy = ((latest - last_year) / last_year * 100) if last_year else 0.0
+
+            producers.append({
+                "country": name,
+                "code": meta["code"],
+                "lat": meta["lat"],
+                "lon": meta["lon"],
+                "prodMbd": round(latest, 2),
+                "yoyChangePct": round(yoy, 2),
+                "group": meta["group"],
+                "rank": meta["rank"]
+            })
+        except (KeyError, ValueError, IndexError):
+            continue
+
+    producers.sort(key=lambda x: x["rank"])
+    
+    opec = [p["yoyChangePct"] for p in producers if p["group"] == "OPEC+"]
+    non_opec = [p["yoyChangePct"] for p in producers if p["group"] == "Non-OPEC"]
+
+    return {
+        "producers": producers,
+        "opec_yoy_change": round(calc_avg(opec), 2) if opec else None,
+        "non_opec_yoy_change": round(calc_avg(non_opec), 2) if non_opec else None,
+    }
