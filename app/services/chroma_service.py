@@ -4,6 +4,8 @@ Chroma DB 벡터 데이터베이스 서비스
 import os
 from typing import List, Dict, Any
 import logging
+import requests
+import chromadb
 
 logger = logging.getLogger(__name__)
 
@@ -11,50 +13,35 @@ class ChromaService:
     def __init__(self, persist_directory: str = "./chroma_db"):
         """Chroma DB 클라이언트 초기화"""
         self.persist_directory = persist_directory
-        self.embedding_model = None  # 지연 로딩 
+        self.embedding_model = None
         chroma_host = os.getenv("CHROMA_HOST")
         chroma_auth_token = os.getenv("CHROMA_AUTH_TOKEN")
         
         if chroma_host:
-            # 서버 모드 (REST API)
+            # 서버 모드
             logger.info(f"ChromaDB 서버 연결: {chroma_host}")
-            self.chroma_host = chroma_host
-            self.chroma_auth_token = chroma_auth_token
-            self.client = None
-            self.collection = None
-            self._init_collection_rest()
-            )
-            
-            try:
-                self.collection = self.client.get_collection("news_embeddings")
-            except:
-                self.collection = self.client.create_collection(
-                    name="news_embeddings",
-                    metadata={"hnsw:space": "cosine", "description": "Market Plan B 뉴스 임베딩"}
+            if chroma_auth_token:
+                self.client = chromadb.HttpClient(
+                    host=chroma_host,
+                    headers={"Authorization": f"Bearer {chroma_auth_token}"}
                 )
+            else:
+                self.client = chromadb.HttpClient(host=chroma_host)
+        else:
+            # 로컬 모드
+            logger.info(f"ChromaDB 로컬 모드: {persist_directory}")
+            self.client = chromadb.PersistentClient(path=persist_directory)
         
-        # 뉴스 컬렉션 생성/가져오기
+        # 컬렉션 초기화
         try:
             self.collection = self.client.get_collection("news_embeddings")
-        except:
+            logger.info("기존 news_embeddings 컬렉션 로드")
+        except Exception:
             self.collection = self.client.create_collection(
                 name="news_embeddings",
-                metadata={"hnsw:space": "cosine", "description": "Market Plan B 뉴스 임베딩 (CrudeBERT 64차원)"}
+                metadata={"hnsw:space": "cosine", "description": "Market Plan B 뉴스 임베딩"}
             )
-        
-        try:
-            url = f"{self.chroma_host}/api/v2/collections"
-            response = requests.get(url, headers=headers, verify=False, timeout=10)
-            collections = response.json()
-            
-            exists = any(c["name"] == "news_embeddings" for c in collections)
-            
-            if not exists:
-                payload = {"name": "news_embeddings", "metadata": {"hnsw:space": "cosine"}}
-                requests.post(url, json=payload, headers=headers, verify=False, timeout=10)
-                logger.info("news_embeddings 컬렉션 생성")
-        except Exception as e:
-            logger.error(f"컬렉션 초기화 실패: {e}")
+            logger.info("news_embeddings 컬렉션 생성")
     
     def add_news_embeddings(self, news_list: List[Dict[str, Any]]) -> int:
         """뉴스 임베딩 저장"""
@@ -70,15 +57,10 @@ class ChromaService:
             if not embedding:
                 continue
             
-            # === metadata에는 title만 저장 ===
-            metadata = {
-                "cluster_id": int(news.get("cluster_id", -1)),
-                "title": news.get("title", "")
-            }
-            
             embeddings.append(embedding)
             metadatas.append({
                 "cluster_id": int(news.get("cluster_id", -1)),
+                "title": news.get("title", ""),
                 "published": str(news.get("published", ""))
             })
             ids.append(f"news_{timestamp}_{i}")
@@ -97,18 +79,11 @@ class ChromaService:
     def get_collection_stats(self) -> Dict[str, Any]:
         """통계 조회"""
         try:
-            if self.client:
-                count = self.collection.count()
-            else:
-                headers = {"Authorization": f"Basic {self.chroma_auth_token}"}
-                url = f"{self.chroma_host}/api/v2/collections/news_embeddings/count"
-                response = requests.get(url, headers=headers, verify=False, timeout=10)
-                count = response.json()
-            
+            count = self.collection.count()
             return {"total_documents": count, "collection_name": "news_embeddings"}
         except Exception as e:
             logger.error(f"통계 조회 오류: {e}")
-            return {"total_documents": 0, "collection_name": "unknown"}
+            return {"total_documents": 0, "collection_name": "news_embeddings"}
 
 
 # 전역 인스턴스
