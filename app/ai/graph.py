@@ -5,6 +5,7 @@ from typing import Dict, Any
 
 from langgraph.graph import StateGraph, END
 from langchain_core.messages import HumanMessage, AIMessage
+from langgraph.checkpoint.memory import MemorySaver
 
 
 
@@ -41,18 +42,18 @@ def _route_from_interinferencer(state: AgentState) -> str:
 
 
 # === 실행 함수 정의 ===
-def build_app(chroma_collection=None):
+def build_app(chroma_collection=None, checkpointer=None):
     """
     LangGraph StateGraph를 구성하고 컴파일된 앱을 반환한다.
     chroma_collection은 과거 버전 호환용 인자이며,
     현재 news_rag는 내부 chroma_service를 직접 사용한다.
+
+    ✅ checkpointer를 외부에서 주입할 수 있게 수정
     """
     llm_text = get_llm_text()
     llm_json = get_llm_json()
 
     # 툴 매핑 정의
-    # - indicator_snapshot, pattern_lookup, graph_tool: 일반 함수 그대로 사용
-    # - news_rag(run_news_rag): @tool 로 감싼 StructuredTool 이므로 invoke로 실행
     tools = {
         "indicator_snapshot": run_indicator_snapshot,
         "news_rag": lambda **kwargs: run_news_rag.invoke(kwargs),
@@ -72,7 +73,6 @@ def build_app(chroma_collection=None):
     # 플로우 정의
     graph.set_entry_point("interinferencer")
 
-    # interinferencer -> (조건부) -> planner or questiongenerator
     graph.add_conditional_edges(
         "interinferencer",
         _route_from_interinferencer,
@@ -82,15 +82,16 @@ def build_app(chroma_collection=None):
         },
     )
 
-    # interinferencer -> planner -> toolquery -> answergenerator -> questiongenerator
     graph.add_edge("planner", "toolquery")
     graph.add_edge("toolquery", "answergenerator")
     graph.add_edge("answergenerator", "questiongenerator")
-
-    # questiongenerator -> END
     graph.add_edge("questiongenerator", END)
 
-    app = graph.compile()
+    # ✅ checkpointer 연결
+    if checkpointer is None:
+        checkpointer = MemorySaver()
+
+    app = graph.compile(checkpointer=checkpointer)
     return app
 
 
