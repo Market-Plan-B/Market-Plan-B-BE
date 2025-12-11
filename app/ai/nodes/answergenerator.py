@@ -195,10 +195,13 @@ def build_answergenerator_node(llm_text) -> Callable[[AgentState], Dict[str, Any
             xai_result_str = str(raw_xai) if raw_xai is not None else ""
         # :작은_파란색_다이아몬드: graph_tool 결과 문자열화
         raw_graph_tool = state.get("graph_tool", {})
+        print(f"[그래프 툴 테스트] : {raw_graph_tool}")
+        
         if isinstance(raw_graph_tool, (dict, list)):
             graph_tool_result_str = json.dumps(raw_graph_tool, ensure_ascii=False)
         else:
             graph_tool_result_str = str(raw_graph_tool) if raw_graph_tool is not None else ""
+        print(f"[그래프 툴 테스트] : {graph_tool_result_str}")
         # :작은_파란색_다이아몬드: 프롬프트에 graph_tool_result까지 함께 전달
         prompt = ANSWERGEN_SYSTEM_PROMPT.format(
             goal=goal,
@@ -213,7 +216,9 @@ def build_answergenerator_node(llm_text) -> Callable[[AgentState], Dict[str, Any
         messages = [SystemMessage(content=prompt)]
         resp = llm_text.invoke(messages)
         answer = resp.content
+        print(f"그래프 툴 :{graph_tool_result_str}")
         answer = answer + "\n\n" + graph_tool_result_str
+        print(answer)
         print(f"[ANSWERGENERATOR_LOG] 기존 chat_history 길이: {len(state.get('chat_history', []))}")
         
         # 기존 history 불러오기

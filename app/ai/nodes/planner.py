@@ -170,34 +170,38 @@ model_result (모델링/예측 리포트 요약, 없으면 빈 문자열):
 
 4. graph_tool(input: dict) -> dict
 - 목적:
-    - 프론트(Vue)에서 사용할 그래프 스펙 JSON을 생성하는 용도이다.
-    - 최종 출력은 아래와 같이 Chart.js 형태의 구조를 목표로 한다.
-      (예시는 형식 참고용이며, 실제 데이터/라벨은 상황에 맞게 설계한다.)
+    - 프론트(Vue)가 요구하는 차트 스펙(JSON)을 생성한다.
+    - 반드시 아래 구조를 갖는 JSON을 출력해야 한다.
 
-예시 출력:
+graph_tool 출력 형식 (고정):
+
 {
-  "labels": ["1월", "2월", "3월", "4월"],
+  "chartType": "line",                      # "line", "bar", "scatter" 등 가능
+  "title": "<그래프 제목>",
+  "labels": [...],                          # X축 라벨 리스트 (예: 날짜)
   "datasets": [
     {
-      "label": "매출액",
-      "data": [120, 200, 150, 300],
-      "borderColor": "#36A2EB",
-      "borderWidth": 2
+      "label": "<데이터셋 이름>",
+      "data": [...],                        # y값 리스트
+      "borderColor": "<HEX 색상>",
+      "backgroundColor": "<RGBA 색상>",
+      "borderWidth": 2,
+      "fill": false
     }
-  ]
+  ],
+  "yAxisLabel": "<Y축 표시 이름>"
 }
 
-- 실제 호출 시 input 형식(예시):
+- Planner에서 graph_tool을 호출할 때는 반드시 "instruction"만 넘긴다:
 {
-  "instruction": "브렌트 일간 종가를 최근 1달 기준으로 라인 차트로 만들어줘."
+  "tool": "graph_tool",
+  "args": {
+     "instruction": "<그래프를 어떻게 그리고 싶은지 자연어 설명>"
+  }
 }
 
-- 사용 원칙:
-  - graph_tool은 **실제 데이터를 조회하지 않고**, 이미 state에 존재하는 지표/뉴스/패턴 요약이나
-    툴 결과(indicator_snapshot_result, pattern_lookup_result, news_rag_result 등)를
-    바탕으로 그래프 스펙 JSON을 생성한다.
-  - Planner는 graph_tool에 자연어 기반의 "instruction"만 넘기고,
-    실제 라벨/데이터 배열 구성은 graph_tool LLM 노드에서 수행하도록 계획한다.
+- graph_tool 노드 내부 LLM이 위 instruction을 해석하여
+  위 구조와 동일한 JSON 형태로 최종 그래프 스펙을 생성한다.
 
 
 # =====================================
@@ -500,10 +504,16 @@ Planner는 이 내부 단계를 참고용 개념으로만 사용하고,
    }
 
 8) user_query에 "published_at", "발행일", "날짜 기준", "source_score",
-   "점수 높은 순", "랭킹", "순위", "정렬"과 같이
-   **정형 필드(날짜/점수) 기준으로 뉴스 목록을 보고 싶어하는 표현**이 있고,
+   "점수 높은 순", "랭킹", "순위", "정렬",
+   "영향도", "영향도 높은", "영향력이 큰", "중요도", "중요도가 높은", "impact", "market impact"
+   와 같이
+   **정형 필드(날짜/점수/영향도) 기준으로 뉴스 목록을 보고 싶어하는 표현**이 있고,
    동시에 기사/뉴스의 "내용"을 묻는 표현이 없다면:
    → news_rag를 **SQL-only 모드**로 plan 안에 포함해야 한다.
+   → 이때 "영향도", "영향도 높은", "중요도 높은", "impact" 등은
+      contents 테이블의 source_score 필드와 같은 개념으로 간주한다.
+   → 기본적으로 source_score가 높은 뉴스부터 보고 싶어하는 의도로 해석한다.
+
    예:
    {
      "plan": [
@@ -512,8 +522,8 @@ Planner는 이 내부 단계를 참고용 개념으로만 사용하고,
          "args": {
            "query": "",
            "top_k": 10,
-           "start_date": "2025-11-01",
-           "end_date": "2025-11-30",
+           "start_date": null,
+           "end_date": null,
            "sort_by": "source_score",
            "sort_dir": "desc"
          }
@@ -521,22 +531,33 @@ Planner는 이 내부 단계를 참고용 개념으로만 사용하고,
      ]
    }
 
-9) user_query에 "cluster_", "클러스터" 표현이 있고,
-   동시에 "rag", "RAG", "뉴스들을 검색" 등의 표현이 함께 등장하면:
-   → pattern_lookup과 함께 news_rag를 다음과 같이 호출하라.
+9) user_query에 "cluster", "cluster_", "클러스터" 표현이 있고,
+   그 주변에 숫자 N(예: 3, 10, 21, 28 등)이 등장하며,
+   동시에 "rag", "RAG", "뉴스", "news", "기사", "내용", "요약", "헤드라인", "headline", "뉴스들을 검색"
+   중 하나 이상이 함께 등장하면:
+
+   → 이 요청은 **해당 클러스터에 속한 뉴스/기사의 내용·요약을 보고 싶어하는 요청**으로 간주한다.
+   → 이 경우에는 아래 두 툴을 **반드시 동시에(plan 안에 둘 다)** 포함해야 한다.
+      (다른 규칙보다 우선 적용되는 강제 규칙이다.)
+
+   - 먼저 user_query에서 숫자 N을 추출해 cluster_id를 "cluster_{N}" 형식으로 만든다.
+     예:
+       - "클러스터 28번 내용 요약해줘" → cluster_id = "cluster_28"
+       - "cluster_21 뉴스 알려줘" → cluster_id = "cluster_21"
+       - "cluster 5 rag 해줘" → cluster_id = "cluster_5"
 
    {
      "plan": [
        {
          "tool": "pattern_lookup",
-         "args": { "cluster_id": "<user_query에서 추출한 cluster_XX>" }
+         "args": { "cluster_id": "cluster_{N}" }
        },
        {
          "tool": "news_rag",
          "args": {
-           "query": "<user_query 전체가 아니라, cluster_XX 또는 'cluster_XX 관련 뉴스' 같은 핵심 키워드>",
+           "query": "cluster_{N} 관련 뉴스",
            "top_k": 20,
-           "cluster_id": "<동일한 cluster_XX>",
+           "cluster_id": "cluster_{N}",
            "start_date": null,
            "end_date": null,
            "sort_by": null,
@@ -545,7 +566,7 @@ Planner는 이 내부 단계를 참고용 개념으로만 사용하고,
        }
      ]
    }
-   
+
 출력은 무조건 아래 형태 중 하나여야 한다:
 
 {
@@ -640,6 +661,7 @@ def build_planner_node(llm_json) -> Callable[[AgentState], Dict[str, Any]]:
             raw = raw_content
 
         plan = _normalize_plan(raw)
+        print(f"[tool_plan] : {plan}")
 
         return {
             "tool_plan": plan,

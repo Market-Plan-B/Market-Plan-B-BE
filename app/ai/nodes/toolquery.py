@@ -2,6 +2,10 @@
 
 # === 라이브러리 ===
 from typing import Callable, Dict, Any, List
+import json
+import re
+
+
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
@@ -46,17 +50,22 @@ LLM 너는 user_input을 참고하여 가장 적절한 형식을 선택하라.
    - 이 JSON 구조는 아래 형식을 따른다.
 
    예시 형식:
-   {
-     "labels": ["1월", "2월", "3월", "4월"],
-     "datasets": [
-       {
-         "label": "매출액",
-         "data": [120, 200, 150, 300],
-         "borderColor": "#36A2EB",
-         "borderWidth": 2
-       }
-     ]
-   }
+    {
+      "chartType": "line",
+      "title": "브렌트 유가 추이",
+      "labels": ["2024-01-01", "2024-01-02", "2024-01-03", "2024-01-04", "2024-01-05"],
+      "datasets": [
+          {
+            "label": "브렌트 유가",
+            "data": [75.2, 76.1, 74.8, 75.5, 76.3],
+            "borderColor": "#FF6384",
+            "backgroundColor": "rgba(255, 99, 132, 0.2)",
+            "borderWidth": 2,
+            "fill": False
+          }
+        ],
+      "yAxisLabel": "가격 (USD/배럴)"
+    }
 
    3-2) JSON 생성 규칙
    - labels:
@@ -138,6 +147,30 @@ LLM 너는 user_input을 참고하여 가장 적절한 형식을 선택하라.
 
 
 # === 공통 함수 정의 ===
+def _extract_chart_json_from_text(text: str):
+    """LLM 요약 텍스트에서 첫 번째 JSON 객체(그래프 스펙)를 추출해 dict로 반환."""
+    if not text:
+        return None
+
+    # ```json ... ``` 또는 ``` ... ``` 코드블록 우선 탐색
+    m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+    if m:
+        candidate = m.group(1)
+    else:
+        # 코드블록이 없으면 문자열 전체에서 { } 범위 추출 시도
+        try:
+            start = text.index("{")
+            end = text.rindex("}") + 1
+            candidate = text[start:end]
+        except ValueError:
+            return None
+
+    # JSON 파싱
+    try:
+        return json.loads(candidate)
+    except Exception:
+        return None
+    
 def _execute_tool_step(
     step: Dict[str, Any],
     tools: Dict[str, Callable[..., Any]],
@@ -149,21 +182,15 @@ def _execute_tool_step(
     return tool_fn(**args)
 
 
-def _summarize_tool_results(
-    llm_text,
-    results: Dict[str, Any],
-    user_input: str,
-) -> str:
-    """툴 결과들을 LLM으로 간단히 요약한다."""
-    # 툴이 하나도 실행되지 않은 경우 방어
+def _summarize_tool_results(llm_text, results: Dict[str, Any], user_input: str) -> str:
+    # 툴 없이 호출된 경우 처리
     if not results:
         messages = [
             SystemMessage(content=TOOLQUERY_SUMMARY_SYSTEM_PROMPT),
             HumanMessage(
                 content=(
                     f"[user_input]\n{user_input}\n\n"
-                    "[tool_results]\n"
-                    "툴 실행 결과가 없습니다. 참고 가능한 데이터가 거의 없습니다."
+                    "[tool_results]\n툴 실행 결과가 없습니다."
                 )
             ),
         ]
@@ -172,7 +199,7 @@ def _summarize_tool_results(
 
     content_lines: List[str] = []
 
-    # 같은 툴이 여러 번 실행된 경우 리스트로 들어오므로 모두 펼쳐서 넣어줌
+    # 같은 툴 여러 번 실행됐을 수 있으므로 flatten 처리
     for name, value in results.items():
         if isinstance(value, list):
             for idx, v in enumerate(value, start=1):
@@ -196,69 +223,68 @@ def _summarize_tool_results(
 
 
 # === 실행 함수 정의 ===
-def build_toolquery_node(
-    llm_text,
-    tools: Dict[str, Callable[..., Any]],
-) -> Callable[[AgentState], Dict[str, Any]]:
+def build_toolquery_node(llm_text, tools: Dict[str, Callable[..., Any]]):
     """
     planner가 만든 tool_plan에 따라 여러 툴을 실행하고,
-    중간 요약(intermediate_answer)와 raw 결과(tool_results)를 반환한다.
-
-    - state["tool_plan"]: planner가 만든 plan(JSON 리스트)
-      예: [{"tool": "indicator_snapshot", "args": {...}}, ...]
-    - tools: 실제 파이썬 함수들이 들어 있는 dict
-      예: {"indicator_snapshot": indicator_snapshot_fn, ...}
+    중간 요약(intermediate_answer) + raw 결과 + 그래프 JSON 추출을 수행한다.
     """
 
     def node(state: AgentState) -> Dict[str, Any]:
         plan = state.get("tool_plan", []) or []
 
-        # 같은 툴을 여러 번 호출할 수 있으므로, 리스트로 누적
+        # 같은 툴 여러 번 호출 가능 → 리스트 누적
         all_results: Dict[str, List[Any]] = {}
 
         for step in plan:
             name = step.get("tool")
             if not name or name not in tools:
-                # 정의되지 않은 툴은 무시
                 continue
+
             result = _execute_tool_step(step, tools)
 
             if name not in all_results:
                 all_results[name] = []
             all_results[name].append(result)
 
+        # LLM 요약 호출
         summary = _summarize_tool_results(
             llm_text=llm_text,
             results=all_results,
             user_input=state.get("user_input", "") or "",
         )
 
-        # 최신 한 개(기존 필드용) + 전체 리스트(비교용) 같이 제공
+        # ---- 기존 툴 결과 정리 ----
         indicator_list = all_results.get("indicator_snapshot", [])
         news_list = all_results.get("news_rag", [])
         pattern_list = all_results.get("pattern_lookup", [])
-        graph_list = all_results.get("graph_tool", [])
 
         indicator_latest = indicator_list[-1] if indicator_list else {}
         news_latest = news_list[-1] if news_list else []
         pattern_latest = pattern_list[-1] if pattern_list else {}
-        graph_latest = graph_list[-1] if graph_list else None
 
+        # ---- 🔹 LLM이 만든 그래프 JSON 추출 ----
+        chart_spec = _extract_chart_json_from_text(summary)
+
+        if chart_spec is not None:
+            graph_latest = chart_spec
+            graph_list = [chart_spec]
+        else:
+            graph_latest = None
+            graph_list = []
+
+        # ---- 결과 반환 ----
         return {
-            # 툴별 전체 결과 (리스트 형태)
             "tool_results": all_results,
 
-            # 기존 인터페이스 유지: "마지막 한 번" 결과
             "indicator_snapshot_result": indicator_latest,
             "news_rag_result": news_latest,
             "pattern_lookup_result": pattern_latest,
 
-            # 새로 추가: 전체 호출 결과 리스트
             "indicator_snapshot_results": indicator_list,
             "news_rag_results": news_list,
             "pattern_lookup_results": pattern_list,
 
-            # 그래프용 결과
+            # 🔹 LLM 기반 그래프 결과
             "graph_tool": graph_latest,
             "graph_tool_results": graph_list,
 

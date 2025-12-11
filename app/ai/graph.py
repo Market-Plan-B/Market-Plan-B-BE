@@ -58,7 +58,6 @@ def build_app(chroma_collection=None, checkpointer=None):
         "indicator_snapshot": run_indicator_snapshot,
         "news_rag": lambda **kwargs: run_news_rag.invoke(kwargs),
         "pattern_lookup": run_pattern_lookup,
-        "graph_tool": run_graph_tool,
     }
 
     graph = StateGraph(AgentState)
