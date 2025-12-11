@@ -105,6 +105,13 @@ def build_full_dataset(
     # summary_embedding, published or date가 있다고 가정
     news_df = pd.DataFrame(news).copy()
 
+    # 뉴스가 없는 경우 빈 클러스터 데이터로 처리
+    if news_df.empty:
+        daily_cluster = pd.DataFrame(columns=[f"cluster_{i}" for i in range(max_cluster)])
+        df_final = df.merge(daily_cluster, on="date", how="left")
+        df_final = df_final.fillna(0)
+        return df_final, pd.DataFrame(columns=["cluster_km"])
+
     # 날짜 변환
     news_df["date"] = pd.to_datetime(news_df["published"]).dt.date
 
