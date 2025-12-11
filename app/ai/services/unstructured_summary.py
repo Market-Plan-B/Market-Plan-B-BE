@@ -587,7 +587,7 @@ def generate_summary_embeddings(
     else:
         # 임베딩이 없다면 -1로 채움
         for art in articles:
-            articles["cluster_id"] = -1
+            art["cluster_id"] = -1
     # --------------------------
     # 5차: 파일(JSON) 저장
     # --------------------------
