@@ -53,7 +53,7 @@ class ChromaService:
         headers = {"Authorization": f"Basic {self.chroma_auth_token}"}
         
         try:
-            url = f"{self.chroma_host}/api/v1/collections"
+            url = f"{self.chroma_host}/api/v2/collections"
             response = requests.get(url, headers=headers, verify=False, timeout=10)
             collections = response.json()
             
@@ -95,7 +95,7 @@ class ChromaService:
                 self.collection.add(embeddings=embeddings, metadatas=metadatas, ids=ids)
             else:
                 headers = {"Authorization": f"Basic {self.chroma_auth_token}"}
-                url = f"{self.chroma_host}/api/v1/collections/news_embeddings/add"
+                url = f"{self.chroma_host}/api/v2/collections/news_embeddings/add"
                 payload = {"embeddings": embeddings, "metadatas": metadatas, "ids": ids}
                 requests.post(url, json=payload, headers=headers, verify=False, timeout=30)
             
@@ -112,7 +112,7 @@ class ChromaService:
                 count = self.collection.count()
             else:
                 headers = {"Authorization": f"Basic {self.chroma_auth_token}"}
-                url = f"{self.chroma_host}/api/v1/collections/news_embeddings/count"
+                url = f"{self.chroma_host}/api/v2/collections/news_embeddings/count"
                 response = requests.get(url, headers=headers, verify=False, timeout=10)
                 count = response.json()
             
@@ -135,7 +135,7 @@ class ChromaService:
                 }
             else:
                 headers = {"Authorization": f"Basic {self.chroma_auth_token}"}
-                url = f"{self.chroma_host}/api/v1/collections/news_embeddings/get"
+                url = f"{self.chroma_host}/api/v2/collections/news_embeddings/get"
                 payload = {"limit": limit, "include": ["metadatas"]}
                 response = requests.post(url, json=payload, headers=headers, verify=False, timeout=10)
                 results = response.json()
@@ -168,7 +168,7 @@ class ChromaService:
                 }
             else:
                 headers = {"Authorization": f"Basic {self.chroma_auth_token}"}
-                url = f"{self.chroma_host}/api/v1/collections/news_embeddings/get"
+                url = f"{self.chroma_host}/api/v2/collections/news_embeddings/get"
                 payload = {"include": ["metadatas", "embeddings"]}
                 response = requests.post(url, json=payload, headers=headers, verify=False, timeout=10)
                 results = response.json()
