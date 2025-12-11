@@ -1,4 +1,5 @@
 # app/ai/tools/news_rag.py
+
 # === 라이브러리 ===
 from typing import Any, Dict, List, Optional, Union
 
@@ -10,7 +11,7 @@ import torch
 from transformers import AutoTokenizer, AutoModel
 
 from app.db.database import SessionLocal
-from app.db.db_setting import Content   
+from app.db.db_setting import Content
 
 from app.services.agent_service import (
     fetch_contents_by_titles,
@@ -77,7 +78,7 @@ def _project_to_64(vec768: np.ndarray) -> np.ndarray:
 def _format_chroma_results(raw: Dict[str, Any]) -> List[Dict[str, Any]]:
     """
     ChromaDB / VDB query 결과를 간단한 리스트로 변환한다.
-    - metadata: {"title": str}
+    - metadata: {"title": str, ...}
     """
     ids = (raw.get("ids") or [[]])[0]
     dists = (raw.get("distances") or [[]])[0]
@@ -97,21 +98,56 @@ def _format_chroma_results(raw: Dict[str, Any]) -> List[Dict[str, Any]]:
     return results
 
 
+def _normalize_cluster_id(cluster_id: Optional[Union[int, str]]) -> Optional[int]:
+    """
+    cluster_id 인자를 Chroma 메타데이터와 맞는 int 형태로 정규화.
+    - "cluster_21" -> 21
+    - "21"         -> 21
+    - 21           -> 21
+    """
+    if cluster_id is None:
+        return None
+
+    if isinstance(cluster_id, int):
+        return cluster_id
+
+    # 문자열인 경우 처리
+    s = cluster_id.strip()
+    if s.startswith("cluster_"):
+        s = s.split("_", 1)[1]
+
+    try:
+        return int(s)
+    except ValueError:
+        # 이상한 값이면 필터를 아예 쓰지 않는다.
+        return None
+
+
 def _run_news_rag_core(
     query: str,
     collection: Any,
     top_k: int = 5,
+    cluster_id: Optional[Union[int, str]] = None,
 ) -> List[Dict[str, Any]]:
     """
-    semantic 모드: query 임베딩 → Chroma 유사도 검색
+    semantic 모드: query 임베딩 → Chroma 유사도 검색 (+ 선택적 cluster 필터)
     """
     query_text = query or ""
     emb768 = _crudebert_embedding(query_text)
     query_vec = _project_to_64(emb768)
 
+    # cluster_id가 들어온 경우 Chroma where 필터 구성
+    where: Optional[Dict[str, Any]] = None
+    norm_cluster = _normalize_cluster_id(cluster_id)
+    if norm_cluster is not None:
+        where = {"cluster_id": norm_cluster}
+
+    print(f"[DEBUG] _run_news_rag_core: norm_cluster={norm_cluster}, where={where}")
+
     raw = collection.query(
         query_embeddings=[query_vec.astype(float)],
         n_results=top_k,
+        where=where,  # ✅ cluster_id가 있을 경우 해당 클러스터만 검색
     )
     return _format_chroma_results(raw)
 
@@ -207,11 +243,13 @@ def run_news_rag(
         print("[DEBUG] run_news_rag: semantic mode")
         print("[DEBUG] collection count:", collection.count())
         print(f"[DEBUG] query: {query}")
+        print(f"[DEBUG] cluster_id(raw): {cluster_id}")
 
         rag_results = _run_news_rag_core(
             query=query,
             collection=collection,
             top_k=top_k,
+            cluster_id=cluster_id,  # ✅ cluster_id 전달
         )
         print(f"[DEBUG] Chroma 검색 결과: {len(rag_results)}개")
 

@@ -521,6 +521,31 @@ Planner는 이 내부 단계를 참고용 개념으로만 사용하고,
      ]
    }
 
+9) user_query에 "cluster_", "클러스터" 표현이 있고,
+   동시에 "rag", "RAG", "뉴스들을 검색" 등의 표현이 함께 등장하면:
+   → pattern_lookup과 함께 news_rag를 다음과 같이 호출하라.
+
+   {
+     "plan": [
+       {
+         "tool": "pattern_lookup",
+         "args": { "cluster_id": "<user_query에서 추출한 cluster_XX>" }
+       },
+       {
+         "tool": "news_rag",
+         "args": {
+           "query": "<user_query 전체가 아니라, cluster_XX 또는 'cluster_XX 관련 뉴스' 같은 핵심 키워드>",
+           "top_k": 20,
+           "cluster_id": "<동일한 cluster_XX>",
+           "start_date": null,
+           "end_date": null,
+           "sort_by": null,
+           "sort_dir": "desc"
+         }
+       }
+     ]
+   }
+   
 출력은 무조건 아래 형태 중 하나여야 한다:
 
 {
