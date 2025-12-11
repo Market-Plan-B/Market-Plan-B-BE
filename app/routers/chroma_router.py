@@ -29,7 +29,10 @@ async def list_news(limit: int = Query(10, ge=1, le=100)):
             "news": [
                 {
                     "cluster_id": meta.get("cluster_id", -1),
-                    "published": meta.get("published", "N/A")
+                    "published": meta.get("published", "N/A"),
+                    "summary": meta.get("summary", ""),
+                    "title": meta.get("title", ""),
+                    "url": meta.get("url", "")
                 }
                 for meta in results["metadatas"]
             ] if results["metadatas"] else []
@@ -54,6 +57,9 @@ async def get_embeddings():
                 {
                     "cluster_id": meta.get("cluster_id"),
                     "published": meta.get("published"),
+                    "summary": meta.get("summary", ""),
+                    "title": meta.get("title", ""),
+                    "url": meta.get("url", ""),
                     "summary_embedding": emb.tolist() if hasattr(emb, 'tolist') else emb
                 }
                 for meta, emb in zip(metadatas, embeddings)

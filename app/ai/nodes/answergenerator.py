@@ -180,7 +180,6 @@ JSON, 코드블록, 메타설명은 출력하지 말고,
 
 # === 실행 함수 정의 ===
 def build_answergenerator_node(llm_text) -> Callable[[AgentState], Dict[str, Any]]:
-
     def node(state: AgentState) -> Dict[str, Any]:
         user_input = state.get("user_input", "")
         goal = state.get("goal", "")
@@ -188,14 +187,19 @@ def build_answergenerator_node(llm_text) -> Callable[[AgentState], Dict[str, Any
         tool_summary = state.get("intermediate_answer", "")
         daily_news = state.get("daily_news", "")
         model_result = state.get("model_result", "")
-
-        # xai_result를 문자열로 변환 (dict → JSON string)
+        # xai_result 문자열화
         raw_xai = state.get("xai_result", {})
         if isinstance(raw_xai, (dict, list)):
             xai_result_str = json.dumps(raw_xai, ensure_ascii=False)
         else:
             xai_result_str = str(raw_xai) if raw_xai is not None else ""
-
+        # :작은_파란색_다이아몬드: graph_tool 결과 문자열화
+        raw_graph_tool = state.get("graph_tool", {})
+        if isinstance(raw_graph_tool, (dict, list)):
+            graph_tool_result_str = json.dumps(raw_graph_tool, ensure_ascii=False)
+        else:
+            graph_tool_result_str = str(raw_graph_tool) if raw_graph_tool is not None else ""
+        # :작은_파란색_다이아몬드: 프롬프트에 graph_tool_result까지 함께 전달
         prompt = ANSWERGEN_SYSTEM_PROMPT.format(
             goal=goal,
             goal_reason=reason,
@@ -204,24 +208,28 @@ def build_answergenerator_node(llm_text) -> Callable[[AgentState], Dict[str, Any
             model_result=model_result,
             xai_result=xai_result_str,
             intermediate_answer=tool_summary,
+            graph_tool_result=graph_tool_result_str,   # ← 새로 추가
         )
-
         messages = [SystemMessage(content=prompt)]
         resp = llm_text.invoke(messages)
         answer = resp.content
-
-        # 🔹 기존 history 불러오기
+        answer = answer + "\n\n" + graph_tool_result_str
+        print(f"[ANSWERGENERATOR_LOG] 기존 chat_history 길이: {len(state.get('chat_history', []))}")
+        
+        # 기존 history 불러오기
         prev_history = state.get("chat_history", []) or []
-
-        # 🔹 이번 턴 user / assistant 메시지 추가
+        print(f"[ANSWERGENERATOR_LOG] 이전 히스토리: {len(prev_history)}개")
+        
+        # 이번 턴 user / assistant 메시지 추가
         updated_history = prev_history + [
             HumanMessage(content=user_input),
             AIMessage(content=answer),
         ]
-
+        
+        print(f"[ANSWERGENERATOR_LOG] 업데이트된 히스토리: {len(updated_history)}개")
+        
         return {
             "final_answer": answer,
             "chat_history": updated_history,
         }
-
     return node

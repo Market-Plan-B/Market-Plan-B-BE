@@ -1,24 +1,29 @@
 # app/ai/tools/news_rag.py
-
 # === 라이브러리 ===
 from typing import Any, Dict, List, Optional, Union
 
 from langchain_core.tools import tool
-from app.services.chroma_service import chroma_service  # 공용 Chroma 서비스 사용
+from app.services.chroma_service import chroma_service
 
 import numpy as np
 import torch
 from transformers import AutoTokenizer, AutoModel
 
-# === CrudeBERT + 64차원 프로젝션 설정 (summary_embedding과 동일 구조) ===
+from app.db.database import SessionLocal
+from app.db.db_setting import Content   
 
+from app.services.agent_service import (
+    fetch_contents_by_titles,
+    fetch_contents_for_news_rag,
+)
+
+# === CrudeBERT 설정 ===
 CRUDEBERT_BASE_MODEL = "bert-base-uncased"
 CRUDEBERT_MODEL_NAME = "Captain-1337/CrudeBERT"
 
 _input_dim = 768
 _target_dim = 64
 
-# daily_news_data 쪽과 동일하게 고정된 랜덤 프로젝션
 np.random.seed(42)
 _projection_matrix = np.random.randn(_input_dim, _target_dim)
 
@@ -60,7 +65,6 @@ def _crudebert_embedding(text: str) -> np.ndarray:
     with torch.no_grad():
         outputs = model(**inputs)
 
-    # CLS 토큰 임베딩: (1, 768) → (768,)
     emb = outputs.last_hidden_state[:, 0, :].detach().cpu().numpy()[0]
     return emb
 
@@ -70,18 +74,10 @@ def _project_to_64(vec768: np.ndarray) -> np.ndarray:
     return np.dot(vec768, _projection_matrix)
 
 
-# === 공통 함수 정의 ===
 def _format_chroma_results(raw: Dict[str, Any]) -> List[Dict[str, Any]]:
     """
     ChromaDB / VDB query 결과를 간단한 리스트로 변환한다.
-
-    VDB 문서 구조 가정:
-    - metadata:
-        - "cluster_id": int (예: 2)
-        - "published": str (예: "2025-11-30")
-        - "summary": str (뉴스 요약)
-        - "title": str (선택)
-        - "url": str (선택)
+    - metadata: {"title": str}
     """
     ids = (raw.get("ids") or [[]])[0]
     dists = (raw.get("distances") or [[]])[0]
@@ -94,128 +90,170 @@ def _format_chroma_results(raw: Dict[str, Any]) -> List[Dict[str, Any]]:
             {
                 "id": ids[i],
                 "distance": float(dists[i]),
-                "summary": meta.get("summary"),
                 "title": meta.get("title"),
-                "url": meta.get("url"),
-                "cluster_id": meta.get("cluster_id"),
-                "published": meta.get("published"),
                 "metadata": meta,
             }
         )
     return results
 
 
-def _build_where_filter(
-    cluster_id: Optional[Union[int, str]],
-    start_date: Optional[str],
-    end_date: Optional[str],
-) -> Optional[Dict[str, Any]]:
-    """
-    VDB용 where 필터를 구성한다.
-
-    - cluster_id: 특정 클러스터만 조회하고 싶을 때 (int 또는 str)
-    - start_date, end_date: "YYYY-MM-DD" 형태 문자열 가정
-    """
-    where: Dict[str, Any] = {}
-
-    if cluster_id is not None:
-        if isinstance(cluster_id, str) and cluster_id.isdigit():
-            where["cluster_id"] = int(cluster_id)
-        else:
-            where["cluster_id"] = cluster_id
-
-    date_filter: Dict[str, Any] = {}
-    if start_date:
-        date_filter["$gte"] = start_date
-    if end_date:
-        date_filter["$lte"] = end_date
-    if date_filter:
-        where["published"] = date_filter
-
-    if not where:
-        return None
-    return where
-
-
 def _run_news_rag_core(
     query: str,
     collection: Any,
     top_k: int = 5,
-    cluster_id: Optional[Union[int, str]] = None,
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """
-    실제 Chroma 컬렉션에 쿼리 날리는 코어 함수.
-    - 컬렉션에는 CrudeBERT+프로젝션으로 만든 summary_embedding이 저장되어 있음
+    semantic 모드: query 임베딩 → Chroma 유사도 검색
     """
-    where = _build_where_filter(
-        cluster_id=cluster_id,
-        start_date=start_date,
-        end_date=end_date,
-    )
-
-    # query 가 빈 문자열이어도, 기간/클러스터 필터 기반 대표 뉴스 검색용으로 허용
     query_text = query or ""
-
-    # 1) CrudeBERT CLS(768차원)
     emb768 = _crudebert_embedding(query_text)
-    # 2) 64차원으로 투영 (저장된 summary_embedding과 동일 차원/구조)
     query_vec = _project_to_64(emb768)
 
     raw = collection.query(
         query_embeddings=[query_vec.astype(float)],
         n_results=top_k,
-        where=where,
     )
     return _format_chroma_results(raw)
 
 
-# === LangChain Tool 래퍼 ===
-@tool("run_news_rag")
-def run_news_rag(
-    query: str,
-    top_k: int = 5,
-    cluster_id: Optional[Union[int, str]] = None,
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
+def _merge_rag_with_db(
+    rag_results: List[Dict[str, Any]],
+    db_map: Dict[str, Content],
 ) -> List[Dict[str, Any]]:
     """
-    비슷한 내용을 가진 뉴스를 VDB(ChromaDB)에서 검색하고,
-    메타데이터에 저장된 summary/title/url 등을 그대로 반환하는 툴.
-
-    파라미터:
-    - query: 유저 질문/문장 (요약 텍스트 기준 검색)
-    - top_k: 가져올 뉴스 개수 (기본 5개)
-    - cluster_id: 특정 클러스터만 보고 싶을 때 (예: 2 또는 "2")
-    - start_date / end_date: "YYYY-MM-DD" 형식의 날짜 필터
-
-    반환:
-    - [
-        {
-          "id": str,              # Chroma 내부 문서 id
-          "distance": float,      # 벡터 유사도 거리
-          "summary": str | None,  # 뉴스 요약 (metadata.summary)
-          "title": str | None,    # 선택
-          "url": str | None,      # 선택
-          "cluster_id": ...,
-          "published": ...,
-          "metadata": {...},
-        },
-        ...
-      ]
+    semantic 모드: Chroma 결과 + DB contents merge
     """
+    merged: List[Dict[str, Any]] = []
+
+    for r in rag_results:
+        title = r.get("title")
+        content_row = db_map.get(title)
+
+        if content_row is None:
+            merged.append(
+                {
+                    "id": r.get("id"),
+                    "distance": r.get("distance"),
+                    "title": title,
+                    "content": None,
+                    "summary": None,
+                    "published_at": None,
+                    "source": None,
+                    "source_score": None,
+                    "url": None,
+                    "metadata": r.get("metadata") or {},
+                }
+            )
+        else:
+            merged.append(
+                {
+                    "id": r.get("id"),
+                    "distance": r.get("distance"),
+                    "title": content_row.title,
+                    "content": getattr(content_row, "content", None),
+                    "summary": getattr(content_row, "summary", None),
+                    "published_at": getattr(content_row, "published_at", None),
+                    "source": getattr(content_row, "source", None),
+                    "source_score": getattr(content_row, "source_score", None),
+                    "url": getattr(content_row, "url", None),
+                    "metadata": r.get("metadata") or {},
+                }
+            )
+
+    return merged
+
+
+def _format_sql_only_results(rows: List[Content]) -> List[Dict[str, Any]]:
+    """
+    SQL-only 모드 결과 포맷 (semantic 모드와 키를 맞춘다)
+    """
+    out: List[Dict[str, Any]] = []
+    for row in rows:
+        out.append(
+            {
+                "id": f"content_{row.id}",
+                "distance": None,
+                "title": row.title,
+                "content": getattr(row, "content", None),
+                "summary": getattr(row, "summary", None),
+                "published_at": getattr(row, "published_at", None),
+                "source": getattr(row, "source", None),
+                "source_score": getattr(row, "source_score", None),
+                "url": getattr(row, "url", None),
+                "metadata": {},
+            }
+        )
+    return out
+
+
+@tool("run_news_rag")
+def run_news_rag(
+    query: str = "",
+    top_k: int = 5,
+    cluster_id: Optional[Union[int, str]] = None,   # 인터페이스 유지용
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    sort_by: Optional[str] = None,                  # "published_at" 또는 "source_score"
+    sort_dir: str = "desc",                         # "asc" / "desc"
+) -> List[Dict[str, Any]]:
+    """
+    뉴스 관련 통합 툴 (semantic + SQL-only)
+    """
+    is_semantic = bool(query and query.strip())
     collection = chroma_service.collection
-    print("[DEBUG] collection count:", collection.count())
 
-    # 1) Chroma RAG 검색 (PostgreSQL 연동 없이 바로 사용)
-    rag_results = _run_news_rag_core(
-        query=query,
-        collection=collection,
-        top_k=top_k,
-        cluster_id=cluster_id,
-        start_date=start_date,
-        end_date=end_date,
-    )
+    # === 1) semantic 모드: 내용/텍스트 기반 질문 ===
+    if is_semantic:
+        print("[DEBUG] run_news_rag: semantic mode")
+        print("[DEBUG] collection count:", collection.count())
+        print(f"[DEBUG] query: {query}")
 
-    return rag_results
+        rag_results = _run_news_rag_core(
+            query=query,
+            collection=collection,
+            top_k=top_k,
+        )
+        print(f"[DEBUG] Chroma 검색 결과: {len(rag_results)}개")
+
+        titles = [r.get("title") for r in rag_results if r.get("title")]
+        print(f"[DB_LOG] 추출된 titles: {len(titles)}개")
+        if titles:
+            print(f"[DB_LOG] 첫 번째 title: {titles[0]}")
+
+        db = SessionLocal()
+        try:
+            print(f"[DB_LOG] DB 연결 성공, titles로 Content 조회 시작...")
+            db_map = fetch_contents_by_titles(db, titles)
+            print(f"[DB_LOG] DB 조회 완료: {len(db_map)}개 Content 조회됨")
+            merged = _merge_rag_with_db(rag_results, db_map)
+            print(f"[DB_LOG] 최종 merge 결과: {len(merged)}개")
+        finally:
+            db.close()
+            print(f"[DB_LOG] DB 연결 종료")
+
+        return merged
+
+    # === 2) SQL-only 모드: published_at / source_score / 랭킹 질문 ===
+    print("[DEBUG] run_news_rag: SQL-only mode")
+    print(f"[DB_LOG] SQL-only 모드 파라미터: top_k={top_k}, start_date={start_date}, end_date={end_date}")
+    print(f"[DB_LOG] sort_by={sort_by}, sort_dir={sort_dir}")
+
+    db = SessionLocal()
+    try:
+        print(f"[DB_LOG] DB 연결 성공, SQL-only 쿼리 시작...")
+        rows = fetch_contents_for_news_rag(
+            db=db,
+            top_k=top_k,
+            start_date=start_date,
+            end_date=end_date,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
+        )
+        print(f"[DB_LOG] SQL-only 쿼리 완료: {len(rows)}개 Content 조회됨")
+        result = _format_sql_only_results(rows)
+        print(f"[DB_LOG] 최종 포맷 결과: {len(result)}개")
+    finally:
+        db.close()
+        print(f"[DB_LOG] DB 연결 종료")
+
+    return result

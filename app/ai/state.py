@@ -30,9 +30,13 @@ class AgentState(TypedDict, total=False):
     tool_results: Dict[str, Any]                   # 전체 툴 raw 결과 모음
 
     # (toolquery에서 이미 내려주는 경우를 위한 확장 필드들)
-    indicator_snapshot_results: List[Dict[str, Any]]  # indicator_snapshot 전체 호출 리스트
-    news_rag_results: List[List[Dict[str, Any]]]      # news_rag 전체 호출 리스트
-    pattern_lookup_results: List[Dict[str, Any]]      # pattern_lookup 전체 호출 리스트
+    indicator_snapshot_results: List[Dict[str, Any]]   # indicator_snapshot 전체 호출 리스트
+    news_rag_results: List[List[Dict[str, Any]]]       # news_rag 전체 호출 리스트
+    pattern_lookup_results: List[Dict[str, Any]]       # pattern_lookup 전체 호출 리스트
+
+    # 🔹 그래프 툴 결과
+    graph_tool: Dict[str, Any]                     # 마지막 graph_tool 결과 (Chart.js용 JSON 등)
+    graph_tool_results: List[Any]                  # graph_tool 전체 호출 리스트
 
     # ===== 답변 / 추천 질문 =====
     intermediate_answer: str             # 툴 결과 중간 요약 텍스트

@@ -129,11 +129,11 @@ class ChatSession(Base):
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     started_at = Column(DateTime, server_default=func.now())
     ended_at = Column(DateTime)
-    context = Column(JSON)
+    last_activity_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    expires_at = Column(DateTime)  # 만료 시간
 
     user = relationship("User", back_populates="chat_sessions")
     messages = relationship("ChatMessage", back_populates="session", cascade="all, delete-orphan")
-    suggestions = relationship("ChatSuggestion", back_populates="session", cascade="all, delete-orphan")
 
 
 # ----------------------------
@@ -149,22 +149,7 @@ class ChatMessage(Base):
     created_at = Column(DateTime, server_default=func.now())
 
     session = relationship("ChatSession", back_populates="messages")
-    suggestions = relationship("ChatSuggestion", back_populates="message", cascade="all, delete-orphan")
 
-
-# ----------------------------
-# CHAT SUGGESTIONS
-# ----------------------------
-class ChatSuggestion(Base):
-    __tablename__ = "chat_suggestions"
-
-    session_id = Column(Integer, ForeignKey("chat_sessions.id", ondelete="CASCADE"), primary_key=True)
-    message_id = Column(Integer, ForeignKey("chat_messages.id", ondelete="CASCADE"), primary_key=True)
-    suggestion = Column(Text)
-    created_at = Column(DateTime, server_default=func.now())
-
-    session = relationship("ChatSession", back_populates="suggestions")
-    message = relationship("ChatMessage", back_populates="suggestions")
 
 
 # ----------------------------

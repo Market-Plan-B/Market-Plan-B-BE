@@ -8,6 +8,7 @@ from app.routers import chroma_router
 from app.routers import financial_router
 from app.routers import admin
 from app.routers import notifications
+from app.routers import chat_router
 import os
 from dotenv import load_dotenv
 
@@ -37,6 +38,7 @@ app.include_router(chroma_router.router)
 app.include_router(admin.router)
 app.include_router(notifications.router)
 app.include_router(financial_router.router)
+app.include_router(chat_router.router)
 
 DB_USER = os.getenv("DB_USER")
 DB_PASSWORD = os.getenv("DB_PASSWORD")

@@ -4,10 +4,9 @@
 from typing import Dict, Any
 
 from langgraph.graph import StateGraph, END
-import sqlite3
-from langgraph.checkpoint.sqlite import SqliteSaver
-
 from langchain_core.messages import HumanMessage, AIMessage
+
+
 
 from app.ai.models.llms import get_llm_text, get_llm_json
 from app.ai.state import AgentState
@@ -21,18 +20,23 @@ from app.ai.nodes.questiongenerator import build_questiongenerator_node
 from app.ai.tools.indicator_snapshot import run_indicator_snapshot
 from app.ai.tools.news_rag import run_news_rag
 from app.ai.tools.pattern_lookup import run_pattern_lookup
+from app.ai.tools.graph_tool import run_graph_tool
 
 
 # === 공통 함수 정의 ===
 def _route_from_interinferencer(state: AgentState) -> str:
     """
     interinferencer 이후 라우팅 결정.
-    chat_history가 없으면 questiongenerator로 바로 이동,
-    그 외에는 planner로 이동.
+    user_input이 비어있거나 초기 추천 질문 요청이면 questiongenerator로,
+    실제 분석 질문이면 planner로 이동.
     """
-    chat_history = state.get("chat_history", [])
-    if not chat_history:
+    user_input = state.get("user_input", "").strip()
+    
+    # 빈 입력이거나 초기 추천 질문 요청이면 questiongenerator로
+    if not user_input:
         return "questiongenerator"
+    
+    # 실제 분석이 필요한 질문이면 planner로
     return "planner"
 
 
@@ -47,12 +51,13 @@ def build_app(chroma_collection=None):
     llm_json = get_llm_json()
 
     # 툴 매핑 정의
-    # - indicator_snapshot, pattern_lookup: 일반 함수 그대로 사용
+    # - indicator_snapshot, pattern_lookup, graph_tool: 일반 함수 그대로 사용
     # - news_rag(run_news_rag): @tool 로 감싼 StructuredTool 이므로 invoke로 실행
     tools = {
         "indicator_snapshot": run_indicator_snapshot,
         "news_rag": lambda **kwargs: run_news_rag.invoke(kwargs),
         "pattern_lookup": run_pattern_lookup,
+        "graph_tool": run_graph_tool,
     }
 
     graph = StateGraph(AgentState)
@@ -85,11 +90,7 @@ def build_app(chroma_collection=None):
     # questiongenerator -> END
     graph.add_edge("questiongenerator", END)
 
-    # ✅ checkpointer: SQLite 파일 기반
-    conn = sqlite3.connect("memory.db", check_same_thread=False)
-    memory = SqliteSaver(conn)
-
-    app = graph.compile(checkpointer=memory)
+    app = graph.compile()
     return app
 
 
