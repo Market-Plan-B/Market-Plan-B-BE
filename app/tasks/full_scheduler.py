@@ -16,6 +16,8 @@ from app.crawlers.yahoo_crawling import YahooFinanceNewsScraper
 from app.db.database import SessionLocal
 from app.db.db_setting import Notification, User
 from app.services.ai_service import run_full_pipeline, load_news_from_json, save_contents, save_regions, update_region_scores, create_notification
+from app.models.crawling_source import CrawlingSource
+from app.models.crawling_category import CrawlingCategory
 from app.services.weekly_service import generate_weekly_report
 
 # 로깅 설정
@@ -90,24 +92,48 @@ def run_yahoo():
         return []
 
 
+def get_active_sources(db):
+    """is_active=true인 크롤링 소스 조회"""
+    try:
+        sources = db.query(CrawlingSource).filter(CrawlingSource.is_active == True).all()
+        active_sources = {source.source_name.lower(): source.base_url for source in sources}
+        logger.info(f"활성화된 크롤링 소스: {list(active_sources.keys())}")
+        return active_sources
+    except Exception as e:
+        logger.error(f"크롤링 소스 조회 실패: {e}")
+        return {}
+
 def crawl_all_news():
     """모든 크롤러 병렬 실행 → JSON 저장"""
     logger.info("=" * 80)
     logger.info("크롤링 시작")
     logger.info("=" * 80)
     
+    # 활성화된 소스 확인
+    db = SessionLocal()
+    try:
+        active_sources = get_active_sources(db)
+    finally:
+        db.close()
+    
+    if not active_sources:
+        logger.warning("활성화된 크롤링 소스가 없습니다")
+        return None, []
+    
+    # 활성화된 소스만 크롤링
+    futures = {}
     with ThreadPoolExecutor(max_workers=3) as executor:
-        futures = {
-            'oilprice': executor.submit(run_single_crawler, run_oilprice, 600),
-            'google': executor.submit(run_single_crawler, run_google, 600),
-            # 'investing': executor.submit(run_single_crawler, run_investing, 600),  # 임시 비활성화
-            'yahoo': executor.submit(run_single_crawler, run_yahoo, 600),
-        }
+        if 'oilprice' in active_sources:
+            futures['oilprice'] = executor.submit(run_single_crawler, run_oilprice, 600)
+        if 'google' in active_sources:
+            futures['google'] = executor.submit(run_single_crawler, run_google, 600)
+        if 'yahoo' in active_sources:
+            futures['yahoo'] = executor.submit(run_single_crawler, run_yahoo, 600)
         
-        oilprice = futures['oilprice'].result(timeout=700)
-        google = futures['google'].result(timeout=700)
+        oilprice = futures.get('oilprice').result(timeout=700) if 'oilprice' in futures else []
+        google = futures.get('google').result(timeout=700) if 'google' in futures else []
         investing = []  # 임시로 빈 배열
-        yahoo = futures['yahoo'].result(timeout=700)
+        yahoo = futures.get('yahoo').result(timeout=700) if 'yahoo' in futures else []
     
     all_articles = []
     for name, articles in [('oilprice', oilprice), ('google', google), ('investing', investing), ('yahoo', yahoo)]:
@@ -139,6 +165,27 @@ def crawl_all_news():
     return json_path, all_articles
 
 
+def filter_by_active_categories(db, news_list):
+    """is_active=true인 카테고리만 필터링"""
+    try:
+        active_categories = db.query(CrawlingCategory).filter(CrawlingCategory.is_active == True).all()
+        active_category_names = {cat.category for cat in active_categories}
+        logger.info(f"활성화된 카테고리: {active_category_names}")
+        
+        filtered_news = []
+        for news in news_list:
+            category = news.get("category")
+            if category in active_category_names:
+                filtered_news.append(news)
+            else:
+                logger.debug(f"카테고리 필터링 제외: {category} - {news.get('title', '')[:50]}")
+        
+        logger.info(f"카테고리 필터링: {len(news_list)}개 → {len(filtered_news)}개")
+        return filtered_news
+    except Exception as e:
+        logger.error(f"카테고리 필터링 실패: {e}")
+        return news_list
+
 def save_hourly_contents(json_path):
     """1시간마다 크롤링 데이터를 contents에만 저장"""
     import gc
@@ -164,6 +211,9 @@ def save_hourly_contents(json_path):
                 logger.error(f"뉴스 처리 실패: {e}", exc_info=True)
                 return
             gc.collect()
+        
+        # 활성화된 카테고리만 필터링
+        news_list = filter_by_active_categories(db, news_list)
         
         try:
             save_regions(db, news_list)

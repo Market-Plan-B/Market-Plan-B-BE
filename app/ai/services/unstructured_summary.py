@@ -381,13 +381,8 @@ def analyze_article(article_data: dict, client):
             response_format={"type": "json_object"}
         )
         analysis = json.loads(response.choices[0].message.content)
-
-        # 안전성 보정 처리
-        summary = analysis.get("summary", "") or "요약 정보 없음"
-        sentiment = analysis.get("sentiment", {"score": 0.5, "explanation": ""})
-        trust = analysis.get("trust", {"score": 0.5, "explanation": "", "reliable": True})
-        relation = analysis.get("relation_nation", ["미국"])
-        return {
+        # 1) 기본 result 구성
+        result = {
             "title": title,
             "url": url,
             "published": published,
@@ -399,36 +394,26 @@ def analyze_article(article_data: dict, client):
             "sentiment": analysis.get("sentiment", {"explanation": "", "score": 0.5}),
             "trust": analysis.get("trust", {"explanation": "", "score": 0.5, "reliable": True}),
             "relation_nation": analysis.get("relation_nation", []),
-            "daily_change_pct": daily_change_pct
+            "daily_change_pct": daily_change_pct,
         }
-        if not result["summary"] or result["summary"] == "":
+        # 2) summary 보정
+        if not result["summary"]:
             result["summary"] = "요약 정보 없음"
-        if not result["relation_nation"] or len(result["relation_nation"]) == 0:
-            result["relation_nation"] = [{"name": "United States", "code": "USA"}]
-        else:
-            # 각 국가 객체가 name과 code를 모두 가지고 있는지 검증
-            validated_nations = []
-            for nation in result["relation_nation"]:
-                if isinstance(nation, dict) and "name" in nation and "code" in nation:
-                    validated_nations.append(nation)
-            if not validated_nations:
-                result["relation_nation"] = [{"name": "United States", "code": "USA"}]
-            else:
-                result["relation_nation"] = validated_nations
-        if not isinstance(result.get("sentiment"), dict):
+        # 3) sentiment 보정 (한 번만)
+        if not isinstance(result["sentiment"], dict):
             result["sentiment"] = {
                 "explanation": "감성 분석 정보를 제대로 받지 못해 기본값을 사용함.",
-                "score": 0.5
+                "score": 0.5,
             }
         else:
             score = result["sentiment"].get("score", 0.5)
-            explanation = result["sentiment"].get("explanation", "")
-            if not explanation:
-                explanation = "기사의 전반적인 톤과 내용을 기반으로 산출한 감성 점수임."
+            explanation = result["sentiment"].get("explanation") or \
+                "기사의 전반적인 톤과 내용을 기반으로 산출한 감성 점수임."
             result["sentiment"] = {
                 "explanation": explanation,
-                "score": score
+                "score": score,
             }
+        # 4) trust 보정
         if not isinstance(result["trust"], dict):
             result["trust"] = {"score": 0.5, "reliable": True, "explanation": ""}
         else:
@@ -438,9 +423,35 @@ def analyze_article(article_data: dict, client):
                 result["trust"]["reliable"] = result["trust"]["score"] >= 0.5
             if "explanation" not in result["trust"]:
                 result["trust"]["explanation"] = ""
+        # 5) relation_nation 보정 (영어+ISO 코드만 허용)
+        rn = result.get("relation_nation") or []
+        if not isinstance(rn, list):
+            rn = []
+        validated = []
+        for nation in rn:
+            if not isinstance(nation, dict):
+                continue
+            name = nation.get("name", "")
+            code = nation.get("code", "")
+            # name 또는 code가 비어 있으면 제외
+            if not name or not code:
+                continue
+            # 영어 알파벳 + 공백만 허용
+            if not re.fullmatch(r"[A-Za-z\s]+", name):
+                continue
+            # ISO 코드: 정확히 3자리 영어
+            if not (len(code) == 3 and code.isalpha()):
+                continue
+            validated.append({
+                "name": name,
+                "code": code,
+            })
+        if not validated:
+            validated = [{"name": "United States", "code": "USA"}]
+        result["relation_nation"] = validated
         return result
     except Exception as e:
-        print(f":경고: 분석 오류 ({title[:40]}): {e}")
+        print(f"분석 오류 ({title[:40]}): {e}")
         return {
             "title": title,
             "url": url,
@@ -452,10 +463,9 @@ def analyze_article(article_data: dict, client):
             "summary": None,
             "sentiment": None,
             "trust": None,
-            "relation_nation": []
+            "relation_nation": [],
+            "daily_change_pct": daily_change_pct,
         }
-    
-
 def analyze_all_articles(articles, client, tqdm_desc="기사 분석 중"):
     results = []
     count_new = 0
