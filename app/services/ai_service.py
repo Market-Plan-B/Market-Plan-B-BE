@@ -17,6 +17,7 @@ from app.ai.nodes.reportgenerator import reportgenerator
 from app.db.db_setting import Analytics, RecommendedStrategy, Report, Content, Region, ReportContent, ContentRegion
 from app.db.db_setting import Notification
 from app.services.chroma_service import chroma_service
+from app.models.crawling_category import CrawlingCategory
 
 # ISO 국가 코드 매핑
 COUNTRY_CODES = {
@@ -406,6 +407,23 @@ def run_full_pipeline(db: Session, target_datetime: datetime, json_path: str) ->
             # 비어있는 뉴스 리스트로 계속 진행
             news_list = []
     
+    # 2.5. 활성화된 카테고리만 필터링
+    try:
+        active_categories = db.query(CrawlingCategory).filter(CrawlingCategory.is_active == True).all()
+        active_category_names = {cat.category for cat in active_categories}
+        print(f"활성화된 카테고리: {active_category_names}")
+        
+        filtered_news = []
+        for news in news_list:
+            category = news.get("category")
+            if category in active_category_names:
+                filtered_news.append(news)
+        
+        print(f"카테고리 필터링: {len(news_list)}개 → {len(filtered_news)}개")
+        news_list = filtered_news
+    except Exception as e:
+        print(f"카테고리 필터링 실패: {e}")
+    
     # 3. regions 저장
     save_regions(db, news_list)
     
@@ -430,9 +448,6 @@ def run_full_pipeline(db: Session, target_datetime: datetime, json_path: str) ->
     # 8. analytics 저장
     db_analytics = save_analytics(db, target_date, modeling_result, df_filtered)
     
-    # 9. 정형 데이터 준비 (임시)
-    filtered_data = pd.DataFrame()
-    
     # 10. 뉴스 압축
     news_compact = build_compact_news_list(news_list, max_news=5)
     
@@ -440,7 +455,7 @@ def run_full_pipeline(db: Session, target_datetime: datetime, json_path: str) ->
     try:
         action_result = actiongenerator(
             date=date_str,
-            structured_data=filtered_data,
+            structured_data=df_refined,
             model_prediction=modeling_result["prediction"],
             xai_result=modeling_result["xai"],
             unstructured_data=news_compact
@@ -457,7 +472,7 @@ def run_full_pipeline(db: Session, target_datetime: datetime, json_path: str) ->
     try:
         report_html = reportgenerator(
             date=date_str,
-            structured_data=filtered_data,
+            structured_data=df_refined,
             model_prediction=modeling_result["prediction"],
             xai_result=modeling_result["xai"],
             unstructured_data=news_compact,

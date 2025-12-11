@@ -16,6 +16,8 @@ from app.crawlers.yahoo_crawling import YahooFinanceNewsScraper
 from app.db.database import SessionLocal
 from app.db.db_setting import Notification, User
 from app.services.ai_service import run_full_pipeline, load_news_from_json, save_contents, save_regions, update_region_scores, create_notification
+from app.models.crawling_source import CrawlingSource
+from app.models.crawling_category import CrawlingCategory
 from app.services.weekly_service import generate_weekly_report
 
 # 로깅 설정
@@ -90,24 +92,48 @@ def run_yahoo():
         return []
 
 
+def get_active_sources(db):
+    """is_active=true인 크롤링 소스 조회"""
+    try:
+        sources = db.query(CrawlingSource).filter(CrawlingSource.is_active == True).all()
+        active_sources = {source.source_name.lower(): source.base_url for source in sources}
+        logger.info(f"활성화된 크롤링 소스: {list(active_sources.keys())}")
+        return active_sources
+    except Exception as e:
+        logger.error(f"크롤링 소스 조회 실패: {e}")
+        return {}
+
 def crawl_all_news():
     """모든 크롤러 병렬 실행 → JSON 저장"""
     logger.info("=" * 80)
     logger.info("크롤링 시작")
     logger.info("=" * 80)
     
+    # 활성화된 소스 확인
+    db = SessionLocal()
+    try:
+        active_sources = get_active_sources(db)
+    finally:
+        db.close()
+    
+    if not active_sources:
+        logger.warning("활성화된 크롤링 소스가 없습니다")
+        return None, []
+    
+    # 활성화된 소스만 크롤링
+    futures = {}
     with ThreadPoolExecutor(max_workers=3) as executor:
-        futures = {
-            'oilprice': executor.submit(run_single_crawler, run_oilprice, 600),
-            'google': executor.submit(run_single_crawler, run_google, 600),
-            # 'investing': executor.submit(run_single_crawler, run_investing, 600),  # 임시 비활성화
-            'yahoo': executor.submit(run_single_crawler, run_yahoo, 600),
-        }
+        if 'oilprice' in active_sources:
+            futures['oilprice'] = executor.submit(run_single_crawler, run_oilprice, 600)
+        if 'google' in active_sources:
+            futures['google'] = executor.submit(run_single_crawler, run_google, 600)
+        if 'yahoo' in active_sources:
+            futures['yahoo'] = executor.submit(run_single_crawler, run_yahoo, 600)
         
-        oilprice = futures['oilprice'].result(timeout=700)
-        google = futures['google'].result(timeout=700)
+        oilprice = futures.get('oilprice').result(timeout=700) if 'oilprice' in futures else []
+        google = futures.get('google').result(timeout=700) if 'google' in futures else []
         investing = []  # 임시로 빈 배열
-        yahoo = futures['yahoo'].result(timeout=700)
+        yahoo = futures.get('yahoo').result(timeout=700) if 'yahoo' in futures else []
     
     all_articles = []
     for name, articles in [('oilprice', oilprice), ('google', google), ('investing', investing), ('yahoo', yahoo)]:
@@ -139,6 +165,27 @@ def crawl_all_news():
     return json_path, all_articles
 
 
+def filter_by_active_categories(db, news_list):
+    """is_active=true인 카테고리만 필터링"""
+    try:
+        active_categories = db.query(CrawlingCategory).filter(CrawlingCategory.is_active == True).all()
+        active_category_names = {cat.category for cat in active_categories}
+        logger.info(f"활성화된 카테고리: {active_category_names}")
+        
+        filtered_news = []
+        for news in news_list:
+            category = news.get("category")
+            if category in active_category_names:
+                filtered_news.append(news)
+            else:
+                logger.debug(f"카테고리 필터링 제외: {category} - {news.get('title', '')[:50]}")
+        
+        logger.info(f"카테고리 필터링: {len(news_list)}개 → {len(filtered_news)}개")
+        return filtered_news
+    except Exception as e:
+        logger.error(f"카테고리 필터링 실패: {e}")
+        return news_list
+
 def save_hourly_contents(json_path):
     """1시간마다 크롤링 데이터를 contents에만 저장"""
     import gc
@@ -158,36 +205,60 @@ def save_hourly_contents(json_path):
             news_list = raw_news
         else:
             logger.info("뉴스 처리 시작 (메모리 집약적)")
-            news_list = daily_news_data(raw_news)
-            gc.collect()  # 메모리 해제
-        
-        save_regions(db, news_list)
-        saved_contents = save_contents(db, news_list)
-        update_region_scores(db, news_list)
-
-        impact_threshold = 0.8
-
-        users = db.query(User).all()
-        
-        news_map = { n.get("url"): n for n in news_list }
-
-        for content in saved_contents:
             try:
-                score = float(content.source_score)
+                news_list = daily_news_data(raw_news)
             except Exception as e:
-                logger.error(f"[SCORE ERROR] invalid score: {content.source_score} ({e})")
-                continue
+                logger.error(f"뉴스 처리 실패: {e}", exc_info=True)
+                return
+            gc.collect()
+        
+        # 활성화된 카테고리만 필터링
+        news_list = filter_by_active_categories(db, news_list)
+        
+        try:
+            save_regions(db, news_list)
+        except Exception as e:
+            logger.error(f"Region 저장 실패: {e}", exc_info=True)
+        
+        try:
+            saved_contents = save_contents(db, news_list)
+        except Exception as e:
+            logger.error(f"Content 저장 실패: {e}", exc_info=True)
+            saved_contents = []
+        
+        try:
+            update_region_scores(db, news_list)
+        except Exception as e:
+            logger.error(f"Region 점수 업데이트 실패: {e}", exc_info=True)
 
-            if score >= impact_threshold:
-                for user in users:
-                    create_notification(db, user.id, content.id)
-                    logger.info(
-                        f"[알림 생성] user={user.id}, content={content.id}, score={score}"
-                    )
+        # 알림 생성
+        try:
+            impact_threshold = 0.8
+            users = db.query(User).all()
+            
+            for content in saved_contents:
+                try:
+                    score = float(content.source_score)
+                except Exception as e:
+                    logger.error(f"[SCORE ERROR] invalid score: {content.source_score} ({e})")
+                    continue
+
+                if score >= impact_threshold:
+                    for user in users:
+                        try:
+                            create_notification(db, user.id, content.id)
+                            logger.info(f"[알림 생성] user={user.id}, content={content.id}, score={score}")
+                        except Exception as e:
+                            logger.error(f"알림 생성 실패: {e}")
+        except Exception as e:
+            logger.error(f"알림 처리 실패: {e}", exc_info=True)
 
         # ChromaDB에 저장
-        from app.services.ai_service import save_to_chroma
-        save_to_chroma(news_list)
+        try:
+            from app.services.ai_service import save_to_chroma
+            save_to_chroma(news_list)
+        except Exception as e:
+            logger.error(f"ChromaDB 저장 실패: {e}", exc_info=True)
         
         logger.info(f"Contents 저장 완료: {len(saved_contents)}개")
         
@@ -216,7 +287,6 @@ def run_ai_pipeline(json_path):
         
     except Exception as e:
         logger.error(f"AI 파이프라인 실패: {e}", exc_info=True)
-        raise
         
     finally:
         db.close()

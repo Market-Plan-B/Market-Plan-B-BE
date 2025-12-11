@@ -203,7 +203,6 @@ class CrawlingSource(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     base_url = Column(String(500), nullable=False)
     source_name = Column(String(500), nullable=False)
-    category_ids = Column(JSON, default=[])
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
