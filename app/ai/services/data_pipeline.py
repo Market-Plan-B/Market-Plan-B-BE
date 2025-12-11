@@ -119,17 +119,31 @@ def fetch_crude_stock() -> pd.DataFrame:
     """
     url = "https://api.eia.gov/v2/seriesid/PET.WCESTUS1.W"
     params = {"api_key": API_KEY}
-    r = requests.get(url, params=params)
-    r.raise_for_status()
-    js = r.json()
+    
+    try:
+        print(f"[EIA_LOG] 원유 재고 데이터 요청: {url}")
+        r = requests.get(url, params=params, timeout=30)
+        print(f"[EIA_LOG] 응답 상태: {r.status_code}")
+        
+        if r.status_code == 500:
+            print(f"[EIA_LOG] EIA API 500 에러 - 빈 데이터프레임 반환")
+            return pd.DataFrame(columns=["period", "crude_stock_level"])
+            
+        r.raise_for_status()
+        js = r.json()
 
-    df = pd.DataFrame(js["response"]["data"])
-    df["period"] = pd.to_datetime(df["period"])
-    df["value"] = pd.to_numeric(df["value"])
-    df = df.sort_values("period")
+        df = pd.DataFrame(js["response"]["data"])
+        df["period"] = pd.to_datetime(df["period"])
+        df["value"] = pd.to_numeric(df["value"])
+        df = df.sort_values("period")
 
-    df = df.rename(columns={"value": "crude_stock_level"})
-    return df[["period", "crude_stock_level"]]
+        df = df.rename(columns={"value": "crude_stock_level"})
+        print(f"[EIA_LOG] 원유 재고 데이터 조회 성공: {len(df)}개 레코드")
+        return df[["period", "crude_stock_level"]]
+        
+    except Exception as e:
+        print(f"[EIA_LOG] 원유 재고 데이터 조회 실패: {e}")
+        return pd.DataFrame(columns=["period", "crude_stock_level"])
 
 
 BASE_STOCK = "https://api.eia.gov/v2/petroleum/stoc/wstk/data/"
@@ -309,12 +323,43 @@ def build_eia_objects_for_report(end_date: str, lookback_days: int = 365) -> dic
     end = pd.to_datetime(end_date)
     start = end - pd.Timedelta(days=lookback_days)
 
-    crude = fetch_crude_stock()
-    gas = fetch_gas_stock_total()
-    dist = fetch_dist_stock_total()
-    prod = fetch_prod_features()
-    imports_exports = fetch_import_export_features()
-    refinery = fetch_refinery_run_rate()
+    print(f"[EIA_LOG] EIA 데이터 수집 시작: {start.date()} ~ {end.date()}")
+    
+    try:
+        crude = fetch_crude_stock()
+    except Exception as e:
+        print(f"[EIA_LOG] 원유 재고 조회 실패, 빈 데이터 사용: {e}")
+        crude = pd.DataFrame(columns=["period", "crude_stock_level"])
+        
+    try:
+        gas = fetch_gas_stock_total()
+    except Exception as e:
+        print(f"[EIA_LOG] 휘발유 재고 조회 실패, 빈 데이터 사용: {e}")
+        gas = pd.DataFrame(columns=["period", "gas_stock_level"])
+        
+    try:
+        dist = fetch_dist_stock_total()
+    except Exception as e:
+        print(f"[EIA_LOG] 디젤 재고 조회 실패, 빈 데이터 사용: {e}")
+        dist = pd.DataFrame(columns=["period", "dist_stock_level"])
+        
+    try:
+        prod = fetch_prod_features()
+    except Exception as e:
+        print(f"[EIA_LOG] 생산 데이터 조회 실패, 빈 데이터 사용: {e}")
+        prod = pd.DataFrame(columns=["period", "prod_weekly", "prod_4w_ma", "prod_wow_change"])
+        
+    try:
+        imports_exports = fetch_import_export_features()
+    except Exception as e:
+        print(f"[EIA_LOG] 수입/수출 데이터 조회 실패, 빈 데이터 사용: {e}")
+        imports_exports = pd.DataFrame(columns=["period", "crude_imports", "crude_exports", "import_4w_ma", "net_imports"])
+        
+    try:
+        refinery = fetch_refinery_run_rate()
+    except Exception as e:
+        print(f"[EIA_LOG] 정제 가동률 조회 실패, 빈 데이터 사용: {e}")
+        refinery = pd.DataFrame(columns=["period", "refinery_run_rate"])
 
     def _clip(df: pd.DataFrame, date_col: str = "period") -> pd.DataFrame:
         df = df.copy()
@@ -337,14 +382,17 @@ def build_eia_weekly(end_date: str, eia_objs: dict) -> dict:
     """
 
     end = pd.to_datetime(end_date)
+    print(f"[EIA_LOG] EIA 주간 요약 생성: {end.date()}")
 
     def _latest(df: pd.DataFrame, col: str = "period"):
         if df is None or df.empty:
+            print(f"[EIA_LOG] 빈 데이터프레임으로 인해 None 반환")
             return None
         df = df.copy()
         df[col] = pd.to_datetime(df[col])
         df = df[df[col] <= end]
         if df.empty:
+            print(f"[EIA_LOG] 날짜 필터링 후 빈 데이터프레임")
             return None
         return df.sort_values(col).iloc[-1]
 
@@ -404,13 +452,29 @@ def build_eia_weekly(end_date: str, eia_objs: dict) -> dict:
 # 2. COT (CFTC) WTI 포지션
 # ------------------------------
 
-def load_cot_raw_for_report(end_date: str, years_back: int = 3) -> pd.DataFrame:
+def load_cot_raw_for_report(
+    end_date: str,
+    years_back: int = 3,
+    start_year: int | None = 2025,
+) -> pd.DataFrame:
     """
     end_date 기준 최근 years_back년만 다운로드.
+    - start_year를 직접 줄 수도 있음 (기본 2025, 최소 2013년).
     """
     end = pd.to_datetime(end_date)
     end_year = end.year
-    start_year = 2025
+
+    # start_year를 안 주면(end_year, years_back 기반으로 계산)
+    if start_year is None:
+        start_year = end_year - years_back + 1
+
+    # 최소 2013년 이후로 보정
+    if start_year < 2013:
+        start_year = 2013
+
+    # end_year보다 클 수 없도록 보정
+    if start_year > end_year:
+        start_year = end_year
 
     base_url = "https://www.cftc.gov/files/dea/history/fut_disagg_txt_{}.zip"
     all_df: list[pd.DataFrame] = []

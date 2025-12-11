@@ -19,7 +19,24 @@ async def get_stats():
 async def list_news(limit: int = Query(10, ge=1, le=100)):
     """저장된 뉴스 목록"""
     try:
-        return chroma_service.get_news_list(limit=limit)
+        results = chroma_service.collection.get(
+            limit=limit,
+            include=["metadatas"]
+        )
+        
+        return {
+            "total": len(results["metadatas"]) if results["metadatas"] else 0,
+            "news": [
+                {
+                    "cluster_id": meta.get("cluster_id", -1),
+                    "published": meta.get("published", "N/A"),
+                    "summary": meta.get("summary", ""),
+                    "title": meta.get("title", ""),
+                    "url": meta.get("url", "")
+                }
+                for meta in results["metadatas"]
+            ] if results["metadatas"] else []
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -27,6 +44,26 @@ async def list_news(limit: int = Query(10, ge=1, le=100)):
 async def get_embeddings():
     """임베딩 벡터 값 조회"""
     try:
-        return chroma_service.get_embeddings()
+        results = chroma_service.collection.get(
+            include=["metadatas", "embeddings"]
+        )
+        
+        metadatas = results.get("metadatas", [])
+        embeddings = results.get("embeddings", [])
+        
+        return {
+            "total": len(metadatas),
+            "news": [
+                {
+                    "cluster_id": meta.get("cluster_id"),
+                    "published": meta.get("published"),
+                    "summary": meta.get("summary", ""),
+                    "title": meta.get("title", ""),
+                    "url": meta.get("url", ""),
+                    "summary_embedding": emb.tolist() if hasattr(emb, 'tolist') else emb
+                }
+                for meta, emb in zip(metadatas, embeddings)
+            ]
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

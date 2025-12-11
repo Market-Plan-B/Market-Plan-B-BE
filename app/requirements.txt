@@ -42,3 +42,11 @@ openai
 google-genai
 chromadb
 sentence-transformers
+
+
+# Agent
+langgraph
+langgraph-checkpoint
+langgraph-prebuilt
+torch
+tiktoken

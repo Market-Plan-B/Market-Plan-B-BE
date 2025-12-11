@@ -339,6 +339,46 @@ def save_report(db: Session, target_date: date, report_html: str, content_ids: l
     return report
 
 
+def load_latest_news_and_model_data(db: Session) -> tuple[str, str]:
+    """
+    데이터베이스에서 최신 뉴스와 모델 데이터를 로드하여 반환
+    """
+    from datetime import datetime, timedelta
+    from sqlalchemy import desc
+    
+    try:
+        # 1. 최신 뉴스 데이터 (contents 테이블에서)
+        recent_contents = db.query(Content).filter(
+            Content.published_at >= datetime.now() - timedelta(days=1)
+        ).order_by(desc(Content.published_at)).limit(10).all()
+        
+        if not recent_contents:
+            # 최근 24시간 내 뉴스가 없으면 최신 10개 가져오기
+            recent_contents = db.query(Content).order_by(desc(Content.created_at)).limit(10).all()
+        
+        if not recent_contents:
+            raise Exception("데이터베이스에 뉴스 데이터가 없습니다")
+        
+        # 뉴스 요약 생성
+        news_summary = f"최근 {len(recent_contents)}개의 브렌트 관련 뉴스가 수집되었습니다."
+        if recent_contents:
+            news_summary += f" 주요 뉴스: {recent_contents[0].title[:100]}..."
+        
+        # 2. 최신 모델 예측 결과 (analytics 테이블에서)
+        latest_analytics = db.query(Analytics).order_by(desc(Analytics.created_at)).first()
+        
+        if latest_analytics:
+            model_summary = f"모델 예측 수익률: {latest_analytics.overall_score}, 주요 요인: {latest_analytics.features}"
+        else:
+            model_summary = "모델 예측 데이터가 없습니다"
+        
+        return news_summary, model_summary
+    
+    except Exception as e:
+        print(f"[ERROR] 데이터베이스 데이터 로드 실패: {e}")
+        raise Exception(f"데이터베이스에서 데이터를 로드할 수 없습니다: {e}")
+
+
 def run_full_pipeline(db: Session, target_datetime: datetime, json_path: str) -> dict:
     """
     전체 AI 파이프라인 실행
@@ -354,10 +394,18 @@ def run_full_pipeline(db: Session, target_datetime: datetime, json_path: str) ->
         raise ValueError(f"{json_path} 파일에 뉴스 데이터가 없습니다")
     
     # 2. 뉴스 처리 (임베딩이 이미 있으면 스킵)
-    if raw_news and "summary_embedding" in raw_news[0]:
+    if raw_news and isinstance(raw_news, list) and len(raw_news) > 0 and isinstance(raw_news[0], dict) and "summary_embedding" in raw_news[0]:
         news_list = raw_news
+        print(f"[INFO] 기존 임베딩 데이터 사용: {len(news_list)}개 뉴스")
     else:
-        news_list = daily_news_data(raw_news)
+        print(f"[INFO] 뉴스 데이터 처리 시작: {len(raw_news)}개 뉴스")
+        try:
+            news_list = daily_news_data(raw_news)
+            print(f"[INFO] 뉴스 데이터 처리 완료: {len(news_list)}개 뉴스")
+        except Exception as e:
+            print(f"[ERROR] 뉴스 데이터 처리 실패: {e}")
+            # 비어있는 뉴스 리스트로 계속 진행
+            news_list = []
     
     # 2.5. 활성화된 카테고리만 필터링
     try:
