@@ -19,6 +19,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 from dateutil import parser
 from app.ai.services.brent_data_pipeline import build_full_dataset
+import re
 # from app.ai.services.card2 import generate_card_news  
 
 load_dotenv()
