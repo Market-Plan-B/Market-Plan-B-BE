@@ -498,11 +498,43 @@ def get_embedding(text, tokenizer, model, max_length=512):
 # 차원 축소 설정
 input_dim = 768
 target_dim = 64
-np.random.seed(42)
-projection_matrix = np.random.randn(input_dim, target_dim)  # (768, 64)
+PROJECTION_PATH = "app/ai/repository/structured_params/model_weight/projection_768to64.npy"
+
+def get_projection_matrix():
+    """고정된 projection matrix 로드 또는 생성"""
+    if os.path.exists(PROJECTION_PATH):
+        return np.load(PROJECTION_PATH)
+    else:
+        np.random.seed(42)
+        matrix = np.random.randn(input_dim, target_dim)
+        os.makedirs(os.path.dirname(PROJECTION_PATH), exist_ok=True)
+        np.save(PROJECTION_PATH, matrix)
+        return matrix
+
+projection_matrix = get_projection_matrix()
 
 def reduce_to_64dim(vec768):
     return np.dot(vec768, projection_matrix)
+
+def validate_embedding(emb, expected_dim=64):
+    """임베딩 검증 및 정규화"""
+    if emb is None or emb == "null":
+        return None
+    if isinstance(emb, str):
+        try:
+            emb = json.loads(emb)
+        except:
+            return None
+    if not isinstance(emb, list):
+        return None
+    if len(emb) > 0 and isinstance(emb[0], list):
+        emb = emb[0]
+    if len(emb) != expected_dim:
+        return None
+    try:
+        return np.array(emb, dtype=float)
+    except:
+        return None
 
 def generate_summary_embeddings(
     articles,
@@ -516,7 +548,7 @@ def generate_summary_embeddings(
     valid_indices = []
     generated_count = 0
     # --------------------------
-    # 1차: summary 있는 row는 즉시 768 → 랜덤 64차원 변환
+    # 1차: summary 있는 row는 즉시 768 → 고정 64차원 변환
     # --------------------------
     for i, article in enumerate(tqdm(articles, desc="1차 변환")):
         summary = article.get("summary", None)
@@ -524,8 +556,10 @@ def generate_summary_embeddings(
             article["summary_embedding"] = None
             continue
         try:
-            emb768 = get_embedding(summary, tokenizer, model)  # 768차원
-            emb64 = reduce_to_64dim(emb768)                    # 64차원 변환
+            emb768 = get_embedding(summary, tokenizer, model)
+            emb64 = reduce_to_64dim(emb768)
+            assert emb64.shape == (target_dim,), f"차원 오류: {emb64.shape}"
+            assert not np.isnan(emb64).any(), "NaN 포함"
             article["summary_embedding"] = emb64.tolist()
             generated_count += 1
         except Exception as e:

@@ -202,7 +202,14 @@ def save_hourly_contents(json_path):
             return
         
         if raw_news and "summary_embedding" in raw_news[0]:
-            news_list = raw_news
+            # 기존 임베딩 검증
+            valid_count = sum(1 for n in raw_news if isinstance(n.get("summary_embedding"), list) and len(n.get("summary_embedding", [])) == 64)
+            if valid_count / len(raw_news) >= 0.5:
+                news_list = raw_news
+                logger.info(f"기존 임베딩 재사용 ({valid_count}/{len(raw_news)} 유효)")
+            else:
+                logger.warning(f"기존 임베딩 무효 ({valid_count}/{len(raw_news)}) → 재생성")
+                news_list = daily_news_data(raw_news)
         else:
             logger.info("뉴스 처리 시작 (메모리 집약적)")
             try:

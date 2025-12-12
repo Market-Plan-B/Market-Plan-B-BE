@@ -2,6 +2,7 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import joblib
+import json
 from hdbscan import prediction as hdb_pred
 
 def make_brent_wti_features(start="2013-09-01", end=None, target_horizon=1):
@@ -115,8 +116,43 @@ def build_full_dataset(
     # 날짜 변환
     news_df["date"] = pd.to_datetime(news_df["published"]).dt.date
 
-    # 임베딩 추출
-    embeddings = np.array(news_df["summary_embedding"].tolist())
+    # 임베딩 추출 및 검증
+    def validate_embedding(emb, expected_dim=64):
+        if emb is None or emb == "null":
+            return None
+        if isinstance(emb, str):
+            try:
+                emb = json.loads(emb)
+            except:
+                return None
+        if not isinstance(emb, list):
+            return None
+        if len(emb) > 0 and isinstance(emb[0], list):
+            emb = emb[0]
+        if len(emb) != expected_dim:
+            return None
+        try:
+            return np.array(emb, dtype=float)
+        except:
+            return None
+    
+    valid_embeddings = []
+    valid_indices = []
+    
+    for idx, emb in enumerate(news_df["summary_embedding"]):
+        validated = validate_embedding(emb, expected_dim=64)
+        if validated is not None:
+            valid_embeddings.append(validated)
+            valid_indices.append(idx)
+    
+    if not valid_embeddings:
+        daily_cluster = pd.DataFrame(columns=[f"cluster_{i}" for i in range(max_cluster)])
+        df_final = df.merge(daily_cluster, on="date", how="left")
+        df_final = df_final.fillna(0)
+        return df_final, pd.DataFrame(columns=["cluster_km"])
+    
+    embeddings = np.vstack(valid_embeddings)
+    news_df = news_df.iloc[valid_indices].reset_index(drop=True)
 
     # -----------------------------------------
     # 4. UMAP 변환
