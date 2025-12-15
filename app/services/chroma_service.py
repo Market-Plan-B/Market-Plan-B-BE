@@ -158,6 +158,14 @@ class DirectCollection:
         return 0
     
     def query(self, query_embeddings: List, n_results: int = 10, where: Dict = None):
+        import numpy as np
+        
+        # numpy array를 list로 변환
+        if isinstance(query_embeddings, np.ndarray):
+            query_embeddings = query_embeddings.tolist()
+        elif isinstance(query_embeddings, list):
+            query_embeddings = [emb.tolist() if isinstance(emb, np.ndarray) else emb for emb in query_embeddings]
+        
         data = {
             "query_embeddings": query_embeddings,
             "n_results": n_results
