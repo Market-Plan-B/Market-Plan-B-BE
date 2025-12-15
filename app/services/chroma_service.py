@@ -25,10 +25,11 @@ class ChromaService:
                     ssl=True,
                     host=chroma_host,
                     port=443,
-                    headers={"Authorization": f"Basic {chroma_auth_token}"}
+                    headers={"Authorization": f"Basic {chroma_auth_token}"},
+                    check_version=False
                 )
             else:
-                self.client = chromadb.HttpClient(host=chroma_host)
+                self.client = chromadb.HttpClient(host=chroma_host, check_version=False)
         else:
             # 로컬 모드
             logger.info(f"ChromaDB 로컬 모드: {persist_directory}")
