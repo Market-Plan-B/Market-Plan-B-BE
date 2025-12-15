@@ -231,7 +231,7 @@ async def crawl_brent_news_hourly(start_page=1, end_page=5):
     # UTC 기준 최근 1시간
     now_utc = datetime.now(timezone.utc)
     end_utc = now_utc
-    start_utc = end_utc - timedelta(hours=1)
+    start_utc = end_utc - timedelta(hours=4)
 
     browser_cfg = BrowserConfig(
         headless=True,

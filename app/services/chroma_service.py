@@ -22,8 +22,10 @@ class ChromaService:
             logger.info(f"ChromaDB 서버 연결: {chroma_host}")
             if chroma_auth_token:
                 self.client = chromadb.HttpClient(
+                    ssl=True,
                     host=chroma_host,
-                    headers={"Authorization": f"Bearer {chroma_auth_token}"}
+                    port=443,
+                    headers={"Authorization": f"Basic {chroma_auth_token}"}
                 )
             else:
                 self.client = chromadb.HttpClient(host=chroma_host)
