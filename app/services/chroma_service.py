@@ -6,6 +6,7 @@ from typing import List, Dict, Any
 import logging
 import requests
 import chromadb
+from chromadb.config import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -20,16 +21,27 @@ class ChromaService:
         if chroma_host:
             # 서버 모드
             logger.info(f"ChromaDB 서버 연결: {chroma_host}")
+            settings = Settings(
+                chroma_api_impl="chromadb.api.fastapi.FastAPI",
+                chroma_server_host=chroma_host,
+                chroma_server_ssl_enabled=True,
+                chroma_server_http_port=443,
+                anonymized_telemetry=False
+            )
             if chroma_auth_token:
                 self.client = chromadb.HttpClient(
-                    ssl=True,
                     host=chroma_host,
                     port=443,
+                    ssl=True,
                     headers={"Authorization": f"Basic {chroma_auth_token}"},
-                    check_version=False
+                    settings=settings
                 )
             else:
-                self.client = chromadb.HttpClient(host=chroma_host, check_version=False)
+                self.client = chromadb.HttpClient(
+                    host=chroma_host,
+                    port=443,
+                    settings=settings
+                )
         else:
             # 로컬 모드
             logger.info(f"ChromaDB 로컬 모드: {persist_directory}")
