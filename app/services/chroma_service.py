@@ -6,7 +6,6 @@ from typing import List, Dict, Any
 import logging
 import requests
 import chromadb
-from chromadb.config import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -28,28 +27,10 @@ class ChromaService:
         if self._client is None:
             if self.chroma_host:
                 logger.info(f"ChromaDB 서버 연결: {self.chroma_host}")
-                try:
-                    if self.chroma_auth_token:
-                        self._client = chromadb.HttpClient(
-                            host=self.chroma_host,
-                            port=443,
-                            ssl=True,
-                            headers={"Authorization": f"Basic {self.chroma_auth_token}"}
-                        )
-                    else:
-                        self._client = chromadb.HttpClient(
-                            host=self.chroma_host,
-                            port=443
-                        )
-                except Exception as e:
-                    logger.warning(f"HttpClient 초기화 실패, 재시도: {e}")
-                    # 인증 에러 무시하고 직접 API 호출
-                    self._client = chromadb.HttpClient(
-                        host=self.chroma_host,
-                        port=443,
-                        ssl=True,
-                        headers={"Authorization": f"Basic {self.chroma_auth_token}"} if self.chroma_auth_token else {}
-                    )
+                self._client = DirectChromaClient(
+                    host=self.chroma_host,
+                    auth_token=self.chroma_auth_token
+                )
             else:
                 logger.info(f"ChromaDB 로컬 모드: {self.persist_directory}")
                 self._client = chromadb.PersistentClient(path=self.persist_directory)
@@ -115,6 +96,66 @@ class ChromaService:
         except Exception as e:
             logger.error(f"통계 조회 오류: {e}")
             return {"total_documents": 0, "collection_name": "news_embeddings"}
+
+
+class DirectChromaClient:
+    """ChromaDB REST API 직접 호출"""
+    def __init__(self, host: str, auth_token: str = None):
+        self.base_url = f"https://{host}/api/v1"
+        self.headers = {"Content-Type": "application/json"}
+        if auth_token:
+            self.headers["Authorization"] = f"Basic {auth_token}"
+    
+    def get_collection(self, name: str):
+        response = requests.get(f"{self.base_url}/collections", headers=self.headers)
+        if response.status_code == 200:
+            collections = response.json()
+            for col in collections:
+                if col.get("name") == name:
+                    return DirectCollection(self, name, col.get("id"))
+        raise Exception(f"Collection not found: {name}")
+    
+    def create_collection(self, name: str, metadata: dict = None):
+        data = {"name": name}
+        if metadata:
+            data["metadata"] = metadata
+        response = requests.post(f"{self.base_url}/collections", json=data, headers=self.headers)
+        if response.status_code in [200, 201]:
+            result = response.json()
+            return DirectCollection(self, name, result.get("id"))
+        raise Exception(f"Failed to create collection: {response.text}")
+
+
+class DirectCollection:
+    """ChromaDB Collection 래퍼"""
+    def __init__(self, client: DirectChromaClient, name: str, collection_id: str = None):
+        self.client = client
+        self.name = name
+        self.id = collection_id
+    
+    def add(self, embeddings: List, metadatas: List[Dict], ids: List[str]):
+        data = {
+            "embeddings": embeddings,
+            "metadatas": metadatas,
+            "ids": ids
+        }
+        response = requests.post(
+            f"{self.client.base_url}/collections/{self.id}/add",
+            json=data,
+            headers=self.client.headers
+        )
+        if response.status_code not in [200, 201]:
+            raise Exception(f"Failed to add embeddings: {response.text}")
+        return response.json()
+    
+    def count(self) -> int:
+        response = requests.get(
+            f"{self.client.base_url}/collections/{self.id}/count",
+            headers=self.client.headers
+        )
+        if response.status_code == 200:
+            return response.json()
+        return 0
 
 
 # 전역 인스턴스
