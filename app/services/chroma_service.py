@@ -156,6 +156,22 @@ class DirectCollection:
         if response.status_code == 200:
             return response.json()
         return 0
+    
+    def query(self, query_embeddings: List, n_results: int = 10, where: Dict = None):
+        data = {
+            "query_embeddings": query_embeddings,
+            "n_results": n_results
+        }
+        if where:
+            data["where"] = where
+        response = requests.post(
+            f"{self.client.base_url}/collections/{self.id}/query",
+            json=data,
+            headers=self.client.headers
+        )
+        if response.status_code == 200:
+            return response.json()
+        raise Exception(f"Failed to query: {response.text}")
 
 
 # 전역 인스턴스
