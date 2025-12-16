@@ -11,6 +11,7 @@ class MapImpactResponse(BaseModel):
 class OverallImpactResponse(BaseModel):
     date: str
     overall_score: float
+    overall_change: float
 
 class RegionInfo(BaseModel):
     id: int

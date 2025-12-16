@@ -79,7 +79,8 @@ class Analytics(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     date = Column(Date, nullable=False)
-    overall_score = Column(Numeric(3, 2))  # 예측 수익률
+    overall_score = Column(Numeric(5, 2))  # 예측 수익률
+    overall_change = Column(Numeric(3, 2))  # 예측 변동폭
     features = Column(JSON)  # XAI 피처 중요도
     created_at = Column(DateTime, server_default=func.now())
 

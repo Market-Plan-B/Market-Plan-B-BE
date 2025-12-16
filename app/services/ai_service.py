@@ -87,6 +87,7 @@ def save_analytics(db: Session, target_date: date, prediction_result: dict, df: 
     existing = db.query(Analytics).filter(Analytics.date == target_date).first()
     if existing:
         existing.overall_score = pred.get("predicted_next_close", 0.0)
+        existing.overall_change = pred.get("pred_return", 0.0)
         existing.features = structured_features
         db.commit()
         db.refresh(existing)
@@ -95,6 +96,7 @@ def save_analytics(db: Session, target_date: date, prediction_result: dict, df: 
     db_analytics = Analytics(
         date=target_date,
         overall_score=pred.get("predicted_next_close", 0.0),
+        overall_change=pred.get("pred_return", 0.0),
         features=structured_features
     )
     
