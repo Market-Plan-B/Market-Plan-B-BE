@@ -28,13 +28,10 @@ def get_week_range(any_date: date):
 
 
 @router.get("/daily/cardnews", response_model=CardNewsImagesResponse)
-async def get_daily_cardnews(db: Session = Depends(get_db)):
-    from datetime import date
-    today = date.today()
-
+async def get_daily_cardnews(query_date: str = Query(...), db: Session = Depends(get_db)):
     report = db.query(Report).filter(
         Report.report_type == "daily",
-        Report.start_date == today
+        Report.start_date == query_date
     ).first()
 
     if report and isinstance(report.images, list):
