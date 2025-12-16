@@ -48,7 +48,7 @@ class Region(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String(100), nullable=False)
     code = Column(String(10), nullable=False)
-    region_score = Column(Numeric(3, 2))
+    region_score = Column(Numeric(10, 4))
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
@@ -62,7 +62,7 @@ class Content(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     title = Column(String(500), nullable=False)  # 뉴스 제목
     summary = Column(Text)  # 뉴스 요약
-    source_score = Column(Numeric(3, 2))  # 감정/신뢰도 점수
+    source_score = Column(Numeric(10, 4))  # 감정/신뢰도 점수
     url = Column(String(500))  # 뉴스 URL
     published_at = Column(DateTime)  # 뉴스 발행 시간
     created_at = Column(DateTime, server_default=func.now())
@@ -79,8 +79,8 @@ class Analytics(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     date = Column(Date, nullable=False)
-    overall_score = Column(Numeric(5, 2))  # 예측 수익률
-    overall_change = Column(Numeric(3, 2))  # 예측 변동폭
+    overall_score = Column(Numeric(10, 4))  # 예측 수익률
+    overall_change = Column(Numeric(10, 4))  # 예측 변동폭
     features = Column(JSON)  # XAI 피처 중요도
     created_at = Column(DateTime, server_default=func.now())
 

@@ -34,7 +34,7 @@ class YahooFinanceNewsScraper:
             return False
 
         now_kst = datetime.now(self.KST)
-        start_kst = now_kst - timedelta(hours=4)
+        start_kst = now_kst - timedelta(hours=6)
         
         result = start_kst <= kst_dt <= now_kst
         
