@@ -52,7 +52,7 @@ async def get_impact_overall(db: Session = Depends(get_db)):
     return OverallImpactResponse(
         date=today.strftime("%Y-%m-%d"),
         overall_score=float(analytics.overall_score) if analytics and analytics.overall_score else 0.0,
-        overall_change=float(analytics.overall_change) if analytics and analytics.overall_change else 0.0
+        overall_change=round(float(analytics.overall_change) * 100, 2) if analytics and analytics.overall_change else 0.0
     )
 
 @router.get("/region-impact", response_model=RegionImpactResponse)
