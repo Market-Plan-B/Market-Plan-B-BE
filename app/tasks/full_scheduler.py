@@ -130,10 +130,26 @@ def crawl_all_news():
         if 'yahoo' in active_sources:
             futures['yahoo'] = executor.submit(run_single_crawler, run_yahoo, 600)
         
-        oilprice = futures.get('oilprice').result(timeout=700) if 'oilprice' in futures else []
-        google = futures.get('google').result(timeout=700) if 'google' in futures else []
+        oilprice = []
+        google = []
+        yahoo = []
+        
+        try:
+            oilprice = futures.get('oilprice').result(timeout=650) if 'oilprice' in futures else []
+        except TimeoutError:
+            logger.warning("OilPrice 크롤링 타임아웃")
+        
+        try:
+            google = futures.get('google').result(timeout=650) if 'google' in futures else []
+        except TimeoutError:
+            logger.warning("Google 크롤링 타임아웃")
+        
+        try:
+            yahoo = futures.get('yahoo').result(timeout=650) if 'yahoo' in futures else []
+        except TimeoutError:
+            logger.warning("Yahoo 크롤링 타임아웃")
+        
         investing = []  # 임시로 빈 배열
-        yahoo = futures.get('yahoo').result(timeout=700) if 'yahoo' in futures else []
     
     all_articles = []
     for name, articles in [('oilprice', oilprice), ('google', google), ('investing', investing), ('yahoo', yahoo)]:
